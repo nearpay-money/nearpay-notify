@@ -1,0 +1,14 @@
+Subject: Your receipt from Acme <Test> & Co [test]
+
+Receipt from Acme <Test> & Co
+
+Test mode: no real funds moved.
+
+Amount: 2.00 USDC (Base)
+Settled: 2.00 USDC (Base)
+Payment: pi_01m6pm3ppnengb0aaefsa11e3k
+
+NearPay processed this payment for Acme <Test> & Co. Contact the merchant about the purchase itself.
+
+--
+NearPay · non-custodial payments on NEAR Intents · A transactional message, never marketing.

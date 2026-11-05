@@ -1,0 +1,12 @@
+Subject: Welcome to NearPay
+
+Welcome, Acme Test Shop
+
+Your account is ready in test mode: create a test payment, add a settlement destination and an API key from the dashboard.
+
+Live payments open after business verification (KYB).
+
+Open the dashboard: https://dashboard.nearpay.localhost/
+
+--
+NearPay · non-custodial payments on NEAR Intents · A transactional message, never marketing.

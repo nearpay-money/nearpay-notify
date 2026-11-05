@@ -11,12 +11,13 @@ Scope: Transactional email (receipts, invoices, dunning, security alerts) with p
 
 ## Rules for this repo
 
-- Hexagonal layout: `src/domain` is pure (no I/O); `src/app` holds use cases; `src/infra` adapts DB, HTTP clients and NATS; `src/api` maps spec-generated routes to use cases.
-- Every state change writes the aggregate row, a transition row and an outbox row in ONE transaction.
-- Every public POST honours `Idempotency-Key` inside the same transaction as the side effect.
-- Every query filters by `account_id` AND `livemode` (INV-8).
-- Money is bigint base units + asset/currency (`@nearpay-internal/money`). No floats.
-- Consumers dedupe by event ID (inbox table) and ignore stale `aggregate_version`.
+- Hexagonal layout: `src/domain` is pure (routing, policy, template copy); `src/app` holds use cases; `src/providers` adapts email providers; `src/infra` adapts the DB and peer services; `src/api` maps spec routes to use cases.
+- Events carry no PII: resolve recipients through identity/payments (or the configured ops contacts), never from payloads. Consumers only enqueue jobs inside the inbox transaction; network calls happen in jobs.
+- Every message is deduplicated (`<template>:<key>`, event messages `<event id>:<recipient>`); a retried job or redelivered event never sends twice (INV-4).
+- Recipients and variables are envelope-encrypted at rest; log message ids and templates, never addresses or variables.
+- Escape every variable; render only absolute http(s) links; subjects are single-line. Never show internal compliance reasons to merchants.
+- A copy or layout change updates `test/__snapshots__` in the same commit (review the rendered diff); every template has samples in `src/domain/template/samples.ts`.
+- Keep ≥ 90% branch coverage on `src/domain`.
 
 ## Never
 

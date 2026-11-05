@@ -1,0 +1,9 @@
+Subject: [NearPay ops] Kill switch released
+
+Kill switch released: live quoting resumed
+
+Reason: reviewed and resolved
+Actor: ops:usr_alice
+
+--
+NearPay · non-custodial payments on NEAR Intents · A transactional message, never marketing.

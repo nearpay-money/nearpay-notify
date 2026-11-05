@@ -1,0 +1,15 @@
+Subject: A webhook endpoint was disabled
+
+Webhook endpoint disabled
+
+This endpoint failed every delivery since 2026-11-02 08:15 UTC, so it was disabled and no longer receives events. Fix it and enable it again in the dashboard; missed events can be replayed.
+
+Endpoint:
+  https://merchant.example/webhooks/nearpay
+
+Endpoint id: we_01m6pm3ppnengb0aaefsa11e3j
+
+Open webhooks: https://dashboard.nearpay.localhost/
+
+--
+NearPay · non-custodial payments on NEAR Intents · A transactional message, never marketing.

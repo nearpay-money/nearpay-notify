@@ -1,0 +1,13 @@
+Subject: A payment is under compliance review
+
+Compliance review opened
+
+A payment on your account is under compliance review. Settled funds stay where they are; we may contact you for details.
+
+Reference:
+  ex_01m6pm3ppnengb0aaefsa11e3j
+
+Open the dashboard: https://dashboard.nearpay.localhost/
+
+--
+NearPay · non-custodial payments on NEAR Intents · A transactional message, never marketing.

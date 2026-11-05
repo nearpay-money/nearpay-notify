@@ -1,0 +1,10 @@
+Subject: Your business is verified
+
+Business verification approved
+
+Your business verification (KYB) was approved. You can now enable live mode in the dashboard.
+
+Open the dashboard: https://dashboard.nearpay.localhost/
+
+--
+NearPay · non-custodial payments on NEAR Intents · A transactional message, never marketing.

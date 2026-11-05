@@ -1,0 +1,16 @@
+Subject: Your receipt from Acme Test Shop
+
+Receipt from Acme Test Shop
+
+Amount: 25.00 USD
+Settled: 25.00 USDC (NEAR)
+Paid to (fingerprint): YZMN-R81Z-BR
+Payment: pi_01m6pm3ppnengb0aaefsa11e3j
+
+On-chain proof of settlement:
+  https://nearblocks.io/txns/8Ld3Ap4zR2yK7uR3nVbXq1sH4cW9tE6mP2fJ5gD1aB7c
+
+NearPay processed this payment for Acme Test Shop. Contact the merchant about the purchase itself.
+
+--
+NearPay · non-custodial payments on NEAR Intents · A transactional message, never marketing.
