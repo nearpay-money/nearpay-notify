@@ -1,0 +1,12 @@
+Subject: Confirm your email to finish signing up
+
+Confirm your email
+
+Use the button below within 15 minutes. The link works once.
+
+Confirm email: https://dashboard.nearpay.localhost/auth/magic?token=abc
+
+Never share this link: it signs you in. If you did not expect this email, you can ignore it.
+
+--
+NearPay · non-custodial payments on NEAR Intents · A transactional message, never marketing.

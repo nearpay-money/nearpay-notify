@@ -1,0 +1,10 @@
+Subject: Your NearPay account is active again
+
+Account reinstated
+
+Your account is active again; you can accept live payments.
+
+Open the dashboard: https://dashboard.nearpay.localhost/
+
+--
+NearPay · non-custodial payments on NEAR Intents · A transactional message, never marketing.

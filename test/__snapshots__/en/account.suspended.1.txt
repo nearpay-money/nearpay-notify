@@ -1,0 +1,12 @@
+Subject: Your NearPay account is suspended
+
+Account suspended
+
+Your account is suspended: live-mode changes and new live payments are paused; test mode keeps working. Payments that already settled are not affected (NearPay never holds your funds).
+
+Contact NearPay support to resolve this.
+
+Open the dashboard: https://dashboard.nearpay.localhost/
+
+--
+NearPay · non-custodial payments on NEAR Intents · A transactional message, never marketing.

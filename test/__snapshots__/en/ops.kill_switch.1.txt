@@ -1,0 +1,9 @@
+Subject: [NearPay ops] Kill switch ENGAGED
+
+Kill switch engaged: live quoting is stopped
+
+Reason: verifier mismatch rate above threshold
+Actor: sentinel
+
+--
+NearPay · non-custodial payments on NEAR Intents · A transactional message, never marketing.

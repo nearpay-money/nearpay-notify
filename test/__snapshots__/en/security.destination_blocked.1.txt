@@ -1,0 +1,15 @@
+Subject: A settlement destination was blocked
+
+Settlement destination blocked
+
+One of your settlement destinations did not pass compliance screening and was blocked. New payments no longer settle to it; add another destination to keep receiving payments.
+
+Destination:
+  sd_01m6pm3ppnengb0aaefsa11e3j
+
+Review destinations: https://dashboard.nearpay.localhost/
+
+Contact NearPay support if you believe this is a mistake.
+
+--
+NearPay · non-custodial payments on NEAR Intents · A transactional message, never marketing.

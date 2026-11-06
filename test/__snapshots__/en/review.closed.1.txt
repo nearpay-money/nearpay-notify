@@ -1,0 +1,13 @@
+Subject: Compliance review closed (test mode)
+
+Compliance review closed
+
+The compliance review of a agent payment on your account is closed.
+
+Reference:
+  ap_01m6pm3ppnengb0aaefsa11e3j
+
+Open the dashboard: https://dashboard.nearpay.localhost/
+
+--
+NearPay · non-custodial payments on NEAR Intents · A transactional message, never marketing.

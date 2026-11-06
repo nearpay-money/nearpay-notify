@@ -1,0 +1,29 @@
+<mjml lang="{{lang}}">
+  <mj-head>
+    <mj-title>{{title}}</mj-title>
+    <mj-preview>{{preheader}}</mj-preview>
+    <mj-attributes>
+      <mj-all font-family="Helvetica, Arial, sans-serif" />
+      <mj-text padding="6px 24px" />
+      <mj-button padding="12px 24px" inner-padding="12px 20px" />
+      <mj-table padding="6px 24px" />
+    </mj-attributes>
+  </mj-head>
+  <mj-body background-color="#f6f8fa" width="600px">
+    <mj-section padding="24px 0 8px 0">
+      <mj-column>
+        <mj-text font-size="18px" font-weight="bold" color="#1f2328" padding="0 24px">NearPay</mj-text>
+      </mj-column>
+    </mj-section>
+    <mj-section background-color="#ffffff" border="1px solid #d0d7de" border-radius="8px" padding="16px 0">
+      <mj-column>
+{{content}}
+      </mj-column>
+    </mj-section>
+    <mj-section padding="16px 0 32px 0">
+      <mj-column>
+        <mj-text font-size="12px" line-height="18px" color="#656d76" padding="0 24px">{{footer}}</mj-text>
+      </mj-column>
+    </mj-section>
+  </mj-body>
+</mjml>

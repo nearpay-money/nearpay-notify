@@ -1,0 +1,10 @@
+Subject: Your business verification was not approved
+
+Business verification not approved
+
+We could not approve your business verification (KYB), so live payments are not available for this account. Test mode keeps working.
+
+Contact NearPay support if you have questions.
+
+--
+NearPay · non-custodial payments on NEAR Intents · A transactional message, never marketing.

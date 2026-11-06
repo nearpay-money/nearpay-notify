@@ -1,0 +1,14 @@
+Subject: [NearPay ops] Audit finding: mismatch (settlement_transfer)
+
+Sentinel audit finding (live)
+
+Result: mismatch
+Check: settlement_transfer
+Finding: fnd_01m6pm3ppnengb0aaefsa11e3j
+Execution: ex_01m6pm3ppnengb0aaefsa11e3j
+Account: acct_01m6pm3ppnengb0aaefsa11e3j
+
+A critical compliance case was opened; investigate it in the ops CLI (cases).
+
+--
+NearPay · non-custodial payments on NEAR Intents · A transactional message, never marketing.

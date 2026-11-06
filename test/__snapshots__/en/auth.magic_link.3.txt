@@ -1,0 +1,12 @@
+Subject: You have been invited to NearPay
+
+Join your team on NearPay
+
+Use the button below within 1440 minutes. The link works once.
+
+Accept invitation: https://dashboard.nearpay.localhost/auth/magic?token=ghi
+
+Never share this link: it signs you in. If you did not expect this email, you can ignore it.
+
+--
+NearPay · non-custodial payments on NEAR Intents · A transactional message, never marketing.
