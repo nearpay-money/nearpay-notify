@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  formatDuration,
   formatPrice,
   isTemplate,
   parseVariables,
@@ -60,24 +61,130 @@ describe("formatPrice", () => {
   });
 });
 
+describe("formatDuration", () => {
+  it("names the largest whole unit", () => {
+    expect(formatDuration(1)).toBe("1 minute");
+    expect(formatDuration(15)).toBe("15 minutes");
+    expect(formatDuration(60)).toBe("1 hour");
+    expect(formatDuration(90)).toBe("90 minutes");
+    expect(formatDuration(1440)).toBe("24 hours");
+    expect(formatDuration(2880)).toBe("2 days");
+    expect(formatDuration(10_080)).toBe("7 days");
+  });
+});
+
 describe("copy rules", () => {
   const body = (c: ReturnType<typeof renderContent>) => JSON.stringify(c.blocks);
-  it("KYB: only needs_info shows the reason", () => {
+  const all = () =>
+    TEMPLATE_NAMES.flatMap((t) =>
+      SAMPLES[t].map((v) => {
+        const c = renderContent(t, v);
+        return { t, text: `${c.subject} ${c.preheader} ${c.heading} ${body(c)}` };
+      }),
+    );
+  it("KYB: only the requested info is shown, never a decision reason", () => {
     const d = "https://dashboard.nearpay.localhost";
     expect(
       body(
-        renderContent("kyb.decision", { status: "needs_info", reason: "Send the registry extract", dashboard_url: d }),
+        renderContent("kyb.decision", {
+          status: "needs_info",
+          requested_info: "Send the registry extract",
+          dashboard_url: d,
+        }),
       ),
     ).toContain("Send the registry extract");
-    expect(body(renderContent("kyb.decision", { status: "needs_info", reason: null, dashboard_url: d }))).toContain(
-      "Additional documents",
-    );
-    expect(renderContent("kyb.decision", { status: "approved", reason: null, dashboard_url: d }).subject).toBe(
-      "Your business is verified",
-    );
     expect(
-      renderContent("kyb.decision", { status: "rejected", reason: null, dashboard_url: d }).blocks,
-    ).not.toContainEqual(expect.objectContaining({ kind: "button" }));
+      body(renderContent("kyb.decision", { status: "needs_info", requested_info: null, dashboard_url: d })),
+    ).toContain("See the dashboard for what is missing.");
+    // a message queued before Stage 2 still renders; its `reason` is dropped
+    expect(
+      body(renderContent("kyb.decision", { status: "needs_info", reason: "INTERNAL", dashboard_url: d })),
+    ).not.toContain("INTERNAL");
+    expect(renderContent("kyb.decision", { status: "approved", dashboard_url: d }).subject).toBe(
+      "Your business details are approved",
+    );
+    expect(renderContent("kyb.decision", { status: "rejected", dashboard_url: d }).blocks).not.toContainEqual(
+      expect.objectContaining({ kind: "button" }),
+    );
+  });
+  it("KYB is self-declared: no mail claims a verified business or identity (ADR-0020)", () => {
+    for (const { t, text } of all()) expect(text, t).not.toMatch(/verif(y|ied|ication)|KYB/i);
+  });
+  it("refund mails never imply NearPay held or returned the funds (INV-1)", () => {
+    for (const v of SAMPLES["refund.receipt"]) {
+      const text = body(renderContent("refund.receipt", v));
+      expect(text).toContain("sent this refund from their own wallet");
+      expect(text).not.toMatch(/NearPay (refunded|returned|paid)|your NearPay balance/);
+    }
+  });
+  it("refund receipts show what reached the payer, and what the merchant sent when it differs", () => {
+    type V = (typeof SAMPLES)["refund.receipt"][number];
+    const [cross, same] = SAMPLES["refund.receipt"] as readonly [V, V];
+    const facts = (v: V) =>
+      (
+        renderContent("refund.receipt", v).blocks.find((b) => b.kind === "facts") as {
+          rows: readonly (readonly string[])[];
+        }
+      ).rows;
+    expect(facts(cross)).toEqual(
+      expect.arrayContaining([
+        ["Amount returned", "24.91 USDT (Arbitrum)"],
+        ["Sent by the merchant", "25.00 USDC (Base)"],
+        ["Original payment", "25.00 USD"],
+      ]),
+    );
+    expect(facts(same).map((r) => r[0])).toEqual(["Amount returned", "Returned to", "Payment", "Refund"]);
+    const sameAmount = { ...cross, received_display: cross.refunded_display };
+    expect(facts(sameAmount).map((r) => r[0])).not.toContain("Sent by the merchant");
+    expect(renderContent("refund.receipt", same).subject).toBe("Refund from Acme <Test> & Co [test]");
+    expect(renderContent("refund.receipt", cross).subject).toBe("Refund from Acme Test Shop");
+  });
+  it("member mails name who changed what, falling back to ids", () => {
+    const [added, invited, removed, changed] = SAMPLES["security.member_changed"];
+    expect(body(renderContent("security.member_changed", added))).toContain("Changed by");
+    expect(body(renderContent("security.member_changed", invited))).toContain("accepted an invitation");
+    expect(body(renderContent("security.member_changed", invited))).not.toContain("Changed by");
+    expect(renderContent("security.member_changed", removed).subject).toBe("Security alert: a team member was removed");
+    expect(body(renderContent("security.member_changed", changed))).toContain("(was Admin)");
+    expect(body(renderContent("security.member_changed", changed))).toContain("usr_01m6pm3ppnengb0aaefsa11e3k");
+    const noPrevious = { ...changed, previous_role: null };
+    expect(body(renderContent("security.member_changed", noPrevious))).not.toContain("Previous role");
+  });
+  it("invitation and enrolment mails show the validity and name the account, never the inviter", () => {
+    const inv = renderContent("team.invitation", SAMPLES["team.invitation"][0]);
+    expect(inv.subject).toBe("You're invited to join Acme Test Shop on NearPay");
+    expect(body(inv)).toContain("within 7 days");
+    expect(body(inv)).toContain("Finance role");
+    expect(body(inv)).not.toContain("@");
+    const [admin, op] = SAMPLES["ops.enrolment"];
+    expect(body(renderContent("ops.enrolment", admin))).toContain("as Ops admin");
+    expect(body(renderContent("ops.enrolment", op))).toContain("within 90 minutes");
+  });
+  it("destination approval mails show the fingerprint and the approval count", () => {
+    const v = SAMPLES["security.destination_approval"][0];
+    const text = body(renderContent("security.destination_approval", v));
+    expect(text).toContain("7KQ2-M9XA-31");
+    expect(text).toContain("2 approvals from different owners or admins (1 so far)");
+    expect(body(renderContent("security.destination_approval", { ...v, approvals_required: 1 }))).toContain(
+      "1 approval from",
+    );
+  });
+  it("ops approval mails name the action, target and expiry", () => {
+    const [suspend, release] = SAMPLES["ops.approval_requested"];
+    expect(renderContent("ops.approval_requested", suspend).subject).toBe(
+      "[NearPay ops] Approval needed: Suspend account acct_01m6pm3ppnengb0aaefsa11e3j",
+    );
+    expect(renderContent("ops.approval_requested", release).subject).toBe(
+      "[NearPay ops] Approval needed: Release the kill switch",
+    );
+    expect(body(renderContent("ops.approval_requested", release))).toContain("2026-11-07 11:00 UTC");
+    const unknown = { ...suspend, action: "account.close", target_type: "account" };
+    expect(renderContent("ops.approval_requested", unknown).subject).toContain("account.close");
+  });
+  it("the KYB submission mail says what happens next", () => {
+    const text = body(renderContent("kyb.submitted", SAMPLES["kyb.submitted"][0]));
+    expect(text).toContain("2026-11-07 09:30 UTC");
+    expect(text).toContain("Test mode keeps working");
   });
   it("security mails always show the destination fingerprint", () => {
     for (const t of [
@@ -91,7 +198,7 @@ describe("copy rules", () => {
     const [live, test] = SAMPLES["payment.receipt"];
     expect(renderContent("payment.receipt", live).subject).toBe("Your receipt from Acme Test Shop");
     expect(renderContent("payment.receipt", test).subject).toBe("Your receipt from Acme <Test> & Co [test]");
-    expect(body(renderContent("payment.receipt", test))).toContain("Test mode: no real funds moved.");
+    expect(body(renderContent("payment.receipt", test))).toContain("Test mode — no real funds moved.");
     expect(body(renderContent("payment.receipt", live))).toContain("YZMN-R81Z-BR");
     expect(body(renderContent("payment.receipt", test))).not.toContain("fingerprint");
     expect(renderContent("review.closed", SAMPLES["review.closed"][0]).subject).toBe(

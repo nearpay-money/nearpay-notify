@@ -24,11 +24,13 @@ export const workerShape = {
     .string()
     .regex(/^[^<>\r\n]{1,100} <[^<>\s@]+@[^<>\s@]+>$/, "expected `Name <address>`")
     .default("NearPay <no-reply@nearpay.money>"),
-  /** Ops recipients of kill-switch and audit-finding alerts (comma-separated). */
+  /** Ops recipients of kill-switch, audit-finding and approval-request alerts (comma-separated). */
   securityContacts: list(email).default([]),
   /** Customer receipts for test-mode payments (true only where every mail is caught, e.g. Mailpit). */
   testModeReceipts: flag(false),
   dashboardOrigin: url(["https:", "http:"]).default("https://dashboard.nearpay.localhost"),
+  /** Link target in ops approval mails (the console, `ops.<domain>`). */
+  consoleOrigin: url(["https:", "http:"]).default("https://ops.nearpay.localhost"),
   identityUrl: url(["http:", "https:"]),
   paymentsUrl: url(["http:", "https:"]),
   serviceClientSecret: secret(),

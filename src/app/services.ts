@@ -120,6 +120,7 @@ export async function createWorker(
 
   const routing: RoutingOptions = {
     dashboardOrigin: config.dashboardOrigin,
+    consoleOrigin: config.consoleOrigin,
     testModeReceipts: config.testModeReceipts,
     chainName: (caip2) => getChain(caip2)?.name ?? caip2,
     fingerprint: (caip2, address, assetId) => {

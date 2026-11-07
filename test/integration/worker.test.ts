@@ -4,7 +4,7 @@
  */
 import { sql } from "@nearpay-internal/db";
 import { newId, toUuid } from "@nearpay-internal/ids";
-import { getNotificationRecipients, getReceiptContext } from "@nearpay-internal/spec";
+import { getNotificationRecipients, getReceiptContext, getRefundReceiptContext } from "@nearpay-internal/spec";
 import {
   account,
   domainEvent,
@@ -13,6 +13,7 @@ import {
   paymentIntent,
 } from "@nearpay-internal/testing";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { refund } from "../support/refund.js";
 import { eventually, type Stack, startStack } from "../support/stack.js";
 
 let s: Stack;
@@ -111,24 +112,27 @@ describe("account events", () => {
     }
   });
 
-  it("KYB decisions reach owners; compliance reasons other than needs_info are never shown", async () => {
+  it("KYB decisions reach owners; only the requested info is shown, never a decision reason", async () => {
     const acct = newId("acct");
-    const ev = (status: "approved" | "rejected" | "needs_info", reason: string) =>
+    const ev = (status: "approved" | "rejected" | "needs_info", reason: string, requested_info?: string) =>
       domainEvent(
         `evt.compliance.kyb.${status}`,
-        { account_id: acct, status, reason },
+        { account_id: acct, status, reason, ...(requested_info ? { requested_info } : {}) },
         { accountUuid: toUuid(acct, "acct"), livemode: null },
       );
     await s.publishEvent(ev("rejected", "INTERNAL: adverse media"));
-    await s.publishEvent(ev("needs_info", "Please upload the registry extract"));
+    await s.publishEvent(ev("needs_info", "INTERNAL: thin file", "Add your registration number"));
     const ms = await s.mailpit.waitFor(to(`owner+${acct}@merchant.test`), 2);
     const bodies = await Promise.all(ms.map((m) => s.mailpit.message(m.ID)));
     expect(bodies.map((b) => b.Subject).sort()).toEqual([
-      "We need more information to verify your business",
-      "Your business verification was not approved",
+      "We need more information about your business",
+      "Your business details were not approved",
     ]);
-    expect(bodies.some((b) => b.Text.includes("Please upload the registry extract"))).toBe(true);
-    expect(bodies.some((b) => b.Text.includes("adverse media"))).toBe(false);
+    expect(bodies.some((b) => b.Text.includes("Add your registration number"))).toBe(true);
+    for (const b of bodies) {
+      expect(b.Text).not.toContain("INTERNAL");
+      expect(b.Text).not.toMatch(/verif/i);
+    }
   });
 
   it("an unknown account sends nothing and does not retry", async () => {
@@ -230,6 +234,224 @@ describe("payment receipts", () => {
   });
 });
 
+describe("stage 2: refund receipts", () => {
+  const ctx = (r: ReturnType<typeof refund>, over: Record<string, unknown> = {}) => ({
+    customer_email: `refund+${r.id}@example.test`,
+    merchant_display_name: "Acme <Shop>",
+    livemode: r.livemode,
+    refund: r.id,
+    payment_intent: r.payment_intent,
+    original_amount: 2500,
+    original_currency: "usd",
+    refunded: { amount: "25000000", asset_id: r.asset_id, decimals: 6, display: "25.00 USDC (Base)" },
+    received: { amount: "24910000", asset_id: r.recipient.asset_id, decimals: 6, display: "24.91 USDC (NEAR)" },
+    recipient_display: "buyer.near (NEAR Intents)",
+    evidence_links: ["https://nearblocks.io/txns/8Ld3Ap4zR2yK7uR3nVbXq1sH4cW9tE6mP2fJ5gD1aB7c"],
+    email_receipts: true,
+    ...over,
+  });
+
+  it("sends the refund receipt to the customer, once, with what came back and the proof", async () => {
+    const r = refund({ livemode: true });
+    s.payments.on(getRefundReceiptContext, async () => ctx(r));
+    const e = domainEvent("evt.payments.refund.succeeded", r, { livemode: true });
+    await s.publishEvent(e);
+    const { publish } = await import("@nearpay-internal/bus");
+    await publish(s.bus as never, e.subject, e, `${e.id}-again`); // redelivery: the inbox dedupes it
+    const [m] = await s.mailpit.waitFor(to(`refund+${r.id}@example.test`));
+    expect(m?.Subject).toBe("Refund from Acme <Shop>");
+    const body = await s.mailpit.message(m?.ID as string);
+    expect(body.Text).toContain("Amount returned: 24.91 USDC (NEAR)");
+    expect(body.Text).toContain("Sent by the merchant: 25.00 USDC (Base)");
+    expect(body.Text).toContain("Original payment: 25.00 USD");
+    expect(body.Text).toContain("sent this refund from their own wallet");
+    expect(body.HTML).toContain("Acme &lt;Shop&gt;");
+    expect(body.HTML).toContain('href="https://nearblocks.io/txns/8Ld3Ap4zR2yK7uR3nVbXq1sH4cW9tE6mP2fJ5gD1aB7c"');
+    expect(s.payments.callsTo(getRefundReceiptContext)[0]).toMatchObject({
+      params: { id: r.id },
+      principal: { ptype: "service", sub: "notify" },
+    });
+    await new Promise((res) => setTimeout(res, 500));
+    expect((await s.mailpit.messages()).filter(to(`refund+${r.id}@example.test`))).toHaveLength(1);
+    const row = await s.admin.db
+      .selectFrom("messages")
+      .select(["dedupe_key", "source"])
+      .where("dedupe_key", "=", `refund.receipt:${e.id}:customer`)
+      .executeTakeFirstOrThrow();
+    expect(row.source).toBe("event:evt.payments.refund.succeeded");
+  });
+
+  it("skips receipts turned off, missing emails and a mode payments does not confirm", async () => {
+    const off = refund();
+    const noEmail = refund();
+    const otherMode = refund();
+    s.payments.on(getRefundReceiptContext, async (c) => {
+      if (c.params.id === off.id) return ctx(off, { email_receipts: false, customer_email: "never1@example.test" });
+      if (c.params.id === noEmail.id) return ctx(noEmail, { customer_email: null });
+      return ctx(otherMode, { livemode: false, customer_email: "never2@example.test" });
+    });
+    const events = [off, noEmail, otherMode].map((r) =>
+      domainEvent("evt.payments.refund.succeeded", r, { livemode: true }),
+    );
+    for (const e of events) await s.publishEvent(e);
+    await eventually(async () => {
+      const r = await sql<{ n: string }>`select count(*)::text as n from jobs where kind = 'event.notify'
+        and done_at is not null and dedupe_key in (${sql.join(events.map((e) => `event.notify:${e.id}`))})`.execute(
+        s.admin.db,
+      );
+      return Number(r.rows[0]?.n) === 3;
+    });
+    const sent = (await s.mailpit.messages()).filter(
+      (m) => to("never1@example.test")(m) || to("never2@example.test")(m),
+    );
+    expect(sent).toEqual([]);
+  });
+
+  it("test-mode refund receipts say so (enabled in this stack)", async () => {
+    const r = refund({ livemode: false });
+    s.payments.on(getRefundReceiptContext, async () => ctx(r, { received: null }));
+    await s.publishEvent(domainEvent("evt.payments.refund.succeeded", r, { livemode: false }));
+    const [m] = await s.mailpit.waitFor(to(`refund+${r.id}@example.test`));
+    expect(m?.Subject).toBe("Refund from Acme <Shop> [test]");
+    const body = await s.mailpit.message(m?.ID as string);
+    expect(body.Text).toContain("Test mode — no real funds moved.");
+    expect(body.Text).toContain("Amount returned: 25.00 USDC (Base)");
+  });
+});
+
+describe("stage 2: team, approvals and KYB submission", () => {
+  const acct = newId("acct");
+  const owner = { user_id: newId("usr"), email: `owner2+${acct}@merchant.test`, role: "owner" as const };
+  const admin = { user_id: newId("usr"), email: `admin2+${acct}@merchant.test`, role: "admin" as const };
+  const admin2 = { user_id: newId("usr"), email: `admin3+${acct}@merchant.test`, role: "admin" as const };
+  beforeEach(() => {
+    s.identity.on(getNotificationRecipients, async () => ({ recipients: [owner, admin, admin2] }));
+  });
+
+  it("member changes reach owners only, naming the member and actor by email when identity lists them", async () => {
+    const e = domainEvent(
+      "evt.identity.member.role_changed",
+      {
+        account_id: acct,
+        user_id: admin.user_id,
+        role: "admin",
+        previous_role: "developer",
+        actor_user_id: owner.user_id,
+      },
+      { accountUuid: toUuid(acct, "acct"), livemode: null },
+    );
+    await s.publishEvent(e);
+    const [m] = await s.mailpit.waitFor(
+      (x) => to(owner.email)(x) && x.Subject === "Security alert: a team member's role changed",
+    );
+    const body = await s.mailpit.message(m?.ID as string);
+    expect(body.Text).toContain(`${admin.email} now has the Admin role (was Developer).`);
+    expect(body.Text).toContain(`Changed by: ${owner.email}`);
+    await new Promise((res) => setTimeout(res, 500));
+    expect((await s.mailpit.messages()).filter((x) => to(admin.email)(x) || to(admin2.email)(x))).toEqual([]);
+
+    const viewer = newId("usr");
+    await s.publishEvent(
+      domainEvent(
+        "evt.identity.member.added",
+        { account_id: acct, user_id: viewer, role: "viewer", previous_role: null, actor_user_id: null },
+        { accountUuid: toUuid(acct, "acct"), livemode: null },
+      ),
+    );
+    const [added] = await s.mailpit.waitFor((x) => to(owner.email)(x) && x.Subject.endsWith("was added"));
+    expect((await s.mailpit.message(added?.ID as string)).Text).toContain(`A team member (${viewer})`);
+  });
+
+  it("a destination awaiting approval asks only the owners/admins who have not approved, with the fingerprint", async () => {
+    const d = internalSettlementDestination({
+      account: acct,
+      livemode: true,
+      status: "pending_approval",
+      approval: { required: 2, approved_by: [admin.user_id], rejected_by: null },
+    });
+    await s.publishEvent(domainEvent("evt.identity.settlement_destination.pending_approval", d, { livemode: true }));
+    const ms = await s.mailpit.waitFor(
+      (x) =>
+        x.Subject === "Action needed: approve a new settlement destination" &&
+        (to(owner.email)(x) || to(admin2.email)(x)),
+      2,
+    );
+    for (const m of ms) expect((await s.mailpit.message(m.ID)).Text).toContain(d.fingerprint);
+    await new Promise((res) => setTimeout(res, 500));
+    expect(
+      (await s.mailpit.messages()).filter(
+        (x) => to(admin.email)(x) && x.Subject === "Action needed: approve a new settlement destination",
+      ),
+    ).toEqual([]);
+  });
+
+  it("a KYB submission is acknowledged to owners", async () => {
+    await s.publishEvent(
+      domainEvent(
+        "evt.compliance.kyb.submitted",
+        { account_id: acct, status: "pending", submitted_at: "2026-11-07T09:30:00.000Z" },
+        { accountUuid: toUuid(acct, "acct"), livemode: null },
+      ),
+    );
+    const [m] = await s.mailpit.waitFor((x) => to(owner.email)(x) && x.Subject === "We received your business details");
+    expect((await s.mailpit.message(m?.ID as string)).Text).toContain("2026-11-07 09:30 UTC");
+  });
+});
+
+describe("stage 2: invitation and enrolment links (api → worker → SMTP)", () => {
+  it("delivers the invitation naming the account, then wipes the single-use link", async () => {
+    const r = await s.call("POST", "/internal/messages", {
+      body: {
+        template: "team.invitation",
+        to: "invitee@merchant.test",
+        variables: {
+          link_url: "https://dashboard.nearpay.localhost/auth/invite#token=inv-secret",
+          account_display_name: "Shop & Co",
+          role: "developer",
+          expires_in_minutes: 10_080,
+        },
+        dedupe_key: newId("inv"),
+      },
+    });
+    expect(r.status).toBe(202);
+    const id = toUuid((r.body as { message_id: string }).message_id, "msg");
+    const [m] = await s.mailpit.waitFor(to("invitee@merchant.test"));
+    expect(m?.Subject).toBe("You're invited to join Shop & Co on NearPay");
+    const body = await s.mailpit.message(m?.ID as string);
+    expect(body.Text).toContain("https://dashboard.nearpay.localhost/auth/invite#token=inv-secret");
+    expect(body.Text).toContain("within 7 days");
+    const row = await eventually(async () => {
+      const x = await s.admin.db.selectFrom("messages").selectAll().where("id", "=", id).executeTakeFirstOrThrow();
+      return x.status === "sent" ? x : null;
+    });
+    expect(s.notify.cipher.decrypt(row.variables_enc, `msg:${row.id}:variables`).toString()).toBe("{}");
+  });
+
+  it("delivers the operator enrolment link, then wipes it", async () => {
+    const r = await s.call("POST", "/internal/messages", {
+      body: {
+        template: "ops.enrolment",
+        to: "new.operator@nearpay.test",
+        variables: {
+          link_url: "https://ops.nearpay.localhost/auth/enrol#token=enrol-secret",
+          role: "ops_admin",
+          expires_in_minutes: 1440,
+        },
+        dedupe_key: "operator-add:new.operator@nearpay.test:1",
+      },
+    });
+    const id = toUuid((r.body as { message_id: string }).message_id, "msg");
+    const [m] = await s.mailpit.waitFor(to("new.operator@nearpay.test"));
+    expect(m?.Subject).toBe("[NearPay ops] Set up your console access");
+    expect((await s.mailpit.message(m?.ID as string)).Text).toContain("as Ops admin");
+    const row = await eventually(async () => {
+      const x = await s.admin.db.selectFrom("messages").selectAll().where("id", "=", id).executeTakeFirstOrThrow();
+      return x.status === "sent" ? x : null;
+    });
+    expect(s.notify.cipher.decrypt(row.variables_enc, `msg:${row.id}:variables`).toString()).toBe("{}");
+  });
+});
+
 describe("ops alerts", () => {
   it("kill switch changes go to every security contact", async () => {
     const reason = `stop ${Math.random()}`;
@@ -247,6 +469,53 @@ describe("ops alerts", () => {
       2,
     );
     expect(ms).toHaveLength(2);
+  });
+
+  it("two-person approval requests alert every security contact; decided ones send nothing", async () => {
+    const now = Math.floor(Date.now() / 1000);
+    const approval = (status: string, action: string, target: { type: string; id: string }) => ({
+      id: newId("opa"),
+      object: "ops_approval",
+      action,
+      target,
+      reason: `needs review ${Math.random()}`,
+      status,
+      requested_by: { id: newId("usr"), role: "ops" },
+      requested_at: now,
+      decided_by: null,
+      decided_at: null,
+      decision_note: null,
+      expires_at: now + 3600,
+    });
+    const acct = newId("acct");
+    const suspend = approval("pending", "account.suspend", { type: "account", id: acct });
+    const release = approval("pending", "kill_switch.release", { type: "kill_switch", id: "ks_global" });
+    const decided = approval("approved", "account.reinstate", { type: "account", id: acct });
+    const opts = { accountUuid: null, livemode: null };
+    await s.publishEvent(domainEvent("evt.compliance.account.action_requested", suspend, opts));
+    await s.publishEvent(domainEvent("evt.sentinel.kill_switch.release_requested", release, opts));
+    const decidedEvent = domainEvent("evt.compliance.account.action_requested", decided, opts);
+    await s.publishEvent(decidedEvent);
+    const ms = await s.mailpit.waitFor(
+      (m) =>
+        m.Subject === `[NearPay ops] Approval needed: Suspend account ${acct}` ||
+        m.Subject === "[NearPay ops] Approval needed: Release the kill switch",
+      4,
+    );
+    expect(new Set(ms.flatMap((m) => m.To.map((t) => t.Address)))).toEqual(
+      new Set(["ops@nearpay.test", "oncall@nearpay.test"]),
+    );
+    const body = await s.mailpit.message(ms[0]?.ID as string);
+    expect(body.HTML).toContain('href="https://ops.nearpay.localhost/"');
+    await eventually(
+      async () =>
+        (await s.admin.db.selectFrom("inbox").select("event_id").where("event_id", "=", decidedEvent.id).execute())
+          .length === 1,
+    );
+    const jobs = await sql`select id from jobs where dedupe_key = ${`event.notify:${decidedEvent.id}`}`.execute(
+      s.admin.db,
+    );
+    expect(jobs.rows).toEqual([]);
   });
 
   it("a passing audit finding sends nothing (no job at all)", async () => {

@@ -1,0 +1,17 @@
+Subject: Security alert: a team member's role changed
+
+Team member role changed
+
+dana@acme.example now has the Owner role (was Admin).
+
+Member: dana@acme.example
+Role: Owner
+Previous role: Admin
+Changed by: usr_01m6pm3ppnengb0aaefsa11e3k
+
+If you did not expect this change, sign in now, review your team and contact NearPay support.
+
+Review your team: https://dashboard.nearpay.localhost/
+
+--
+NearPay · non-custodial payments on NEAR Intents · A transactional message, never marketing.

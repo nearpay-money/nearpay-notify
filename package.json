@@ -29,8 +29,8 @@
     "@nearpay-internal/ids": "0.1.2",
     "@nearpay-internal/money": "0.1.2",
     "@nearpay-internal/service": "0.1.2",
-    "@nearpay-internal/spec": "0.1.2",
-    "@nearpay/spec": "0.1.2",
+    "@nearpay-internal/spec": "0.2.0",
+    "@nearpay/spec": "0.2.0",
     "mjml": "5.4.1",
     "nodemailer": "10.0.16",
     "zod": "4.6.7"
@@ -48,8 +48,8 @@
   },
   "pnpm": {
     "overrides": {
-      "@nearpay/spec": "0.1.2",
-      "@nearpay-internal/spec": "0.1.2"
+      "@nearpay/spec": "0.2.0",
+      "@nearpay-internal/spec": "0.2.0"
     },
     "onlyBuiltDependencies": [
       "esbuild",

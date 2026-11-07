@@ -1,0 +1,17 @@
+Subject: Refund from Acme <Test> & Co [test]
+
+Refund from Acme <Test> & Co
+
+Test mode — no real funds moved.
+
+Acme <Test> & Co refunded your payment. The funds reached your wallet and the transfer is confirmed on-chain.
+
+Amount returned: 2.00 USDC (Base)
+Returned to: acme-buyer.near (NEAR Intents)
+Payment: pi_01m6pm3ppnengb0aaefsa11e3k
+Refund: re_01m6pm3ppnengb0aaefsa11e3k
+
+Acme <Test> & Co sent this refund from their own wallet; NearPay prepared it and never held the funds. Contact the merchant about the purchase itself.
+
+--
+NearPay · non-custodial payments on NEAR Intents · A transactional message, never marketing.

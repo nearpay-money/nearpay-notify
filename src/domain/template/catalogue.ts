@@ -4,7 +4,10 @@
  * magic link is the one exception: it IS the message); recipients are resolved by the caller.
  *
  * Copy rules: security mails always show the destination fingerprint (security.md T-01); mails to
- * merchants never repeat internal compliance reasons (only a `needs_info` request is shown).
+ * merchants never repeat internal compliance reasons (only a `needs_info` request is shown); KYB is
+ * self-declared business details reviewed by NearPay ops (ADR-0020 d3), so no mail ever claims a
+ * verified business or identity (product/design-system.md §6.3); refund mails say the merchant sent
+ * the funds from their own wallet (INV-1: NearPay never holds or returns funds itself).
  */
 import { formatUnits, minorUnits } from "@nearpay-internal/money";
 import { z } from "zod";
@@ -20,6 +23,11 @@ export function resolveLocale(requested: string | null | undefined): Locale {
 }
 
 const url = z.url({ protocol: /^https?$/ });
+const ROLES = ["owner", "admin", "developer", "finance", "support", "viewer"] as const;
+const OPS_ROLES = ["ops", "ops_admin"] as const;
+/** Priced amount: fiat minor units (integer) or asset base units (decimal string); INV-5, never a float. */
+const pricingAmount = z.union([z.int().min(0), z.string().regex(/^\d{1,78}$/)]);
+const pricingCurrency = z.string().regex(/^([a-z]{3}|asset)$/);
 const text = (max = 500) => z.string().min(1).max(max);
 const iso = z.iso.datetime({ offset: true });
 
@@ -46,7 +54,11 @@ const SCHEMAS = {
   "security.destination_blocked": z.object({ destination_id: text(64), dashboard_url: url }),
   "kyb.decision": z.object({
     status: z.enum(["approved", "rejected", "needs_info"]),
-    reason: z.string().max(500).nullable(),
+    /**
+     * What ops asked for (`needs_info` only; the event's `requested_info`). Never the decision
+     * `reason`, which is internal. Messages queued before Stage 2 carried `reason`: it is dropped.
+     */
+    requested_info: z.string().max(1000).nullable().default(null),
     dashboard_url: url,
   }),
   "account.suspended": z.object({ dashboard_url: url }),
@@ -66,8 +78,8 @@ const SCHEMAS = {
   "payment.receipt": z.object({
     payment_id: text(64),
     merchant_name: text(200),
-    amount: z.union([z.int().min(0), z.string().regex(/^\d{1,78}$/)]),
-    currency: z.string().regex(/^([a-z]{3}|asset)$/),
+    amount: pricingAmount,
+    currency: pricingCurrency,
     settled_display: text(200),
     /** Fingerprint of the destination the payment settled to (security.md T-01: shown on every receipt). */
     destination_fingerprint: z.string().max(32).nullable(),
@@ -87,6 +99,63 @@ const SCHEMAS = {
     url: url,
     failing_since: iso,
     dashboard_url: url,
+  }),
+  // stage 2 (lld/notify.md §4, step 2.2)
+  "refund.receipt": z.object({
+    refund_id: text(64),
+    payment_id: text(64),
+    merchant_name: text(200),
+    original_amount: pricingAmount,
+    original_currency: pricingCurrency,
+    /** What the merchant sent (settlement asset), e.g. `25.00 USDC (Base)`. */
+    refunded_display: text(200),
+    /** What reached the payer (their asset), from evidence; null when not known. */
+    received_display: z.string().max(200).nullable(),
+    /** Shortened refund address and chain, e.g. `0xab…cd on Base`. */
+    recipient_display: text(200),
+    evidence_links: z.array(url).max(10),
+    livemode: z.boolean(),
+  }),
+  "security.member_changed": z.object({
+    change: z.enum(["added", "removed", "role_changed"]),
+    member_id: text(64),
+    /** Resolved through identity's recipients when the member is an owner/admin; else null. */
+    member_email: z.string().max(254).nullable(),
+    role: z.enum(ROLES),
+    previous_role: z.enum(ROLES).nullable(),
+    /** Owner/admin who made the change; null when the member accepted an invitation. */
+    actor_id: z.string().max(64).nullable(),
+    actor_email: z.string().max(254).nullable(),
+    dashboard_url: url,
+  }),
+  "team.invitation": z.object({
+    link_url: url,
+    account_display_name: text(100),
+    role: z.enum(ROLES),
+    expires_in_minutes: z.int().min(1).max(10_080),
+  }),
+  "ops.enrolment": z.object({
+    link_url: url,
+    role: z.enum(OPS_ROLES),
+    expires_in_minutes: z.int().min(1).max(1440),
+  }),
+  "security.destination_approval": destination.extend({
+    approvals_required: z.int().min(1).max(2),
+    approvals_received: z.int().min(0).max(2),
+  }),
+  "kyb.submitted": z.object({ submitted_at: iso, dashboard_url: url }),
+  "ops.approval_requested": z.object({
+    approval_id: text(64),
+    action: text(64),
+    target_type: text(64),
+    target_id: text(128),
+    /** Requester's reason: shown to ops contacts only (never to merchants). */
+    reason: text(500),
+    requested_by: text(64),
+    requested_by_role: z.enum(OPS_ROLES),
+    requested_at: iso,
+    expires_at: iso,
+    console_url: url,
   }),
 } as const;
 
@@ -147,6 +216,32 @@ export function formatPrice(amount: number | string, currency: string, settledDi
   return `${formatUnits(BigInt(amount), digits, digits)} ${currency.toUpperCase()}`;
 }
 
+/** `15` → `15 minutes`, `1440` → `24 hours`, `10080` → `7 days`. */
+export function formatDuration(minutes: number): string {
+  const unit = (n: number, one: string) => `${n} ${one}${n === 1 ? "" : "s"}`;
+  if (minutes % 1440 === 0 && minutes > 1440) return unit(minutes / 1440, "day");
+  if (minutes % 60 === 0) return unit(minutes / 60, "hour");
+  return unit(minutes, "minute");
+}
+
+const ROLE_LABELS: Record<(typeof ROLES)[number], string> = {
+  owner: "Owner",
+  admin: "Admin",
+  developer: "Developer",
+  finance: "Finance",
+  support: "Support",
+  viewer: "Viewer",
+};
+const OPS_ROLE_LABELS: Record<(typeof OPS_ROLES)[number], string> = { ops: "Operator", ops_admin: "Ops admin" };
+
+const APPROVAL_ACTIONS: Record<string, string> = {
+  "account.suspend": "Suspend account",
+  "account.reinstate": "Reinstate account",
+  "kill_switch.release": "Release the kill switch",
+};
+
+const TEST_MODE = "Test mode — no real funds moved.";
+
 const SUBJECT_TYPES: Record<string, string> = {
   execution: "payment",
   payment_intent: "payment",
@@ -189,7 +284,10 @@ const en: { [T in TemplateName]: (v: Variables<T>) => Content } = {
         kind: "p",
         text: "Your account is ready in test mode: create a test payment, add a settlement destination and an API key from the dashboard.",
       },
-      { kind: "p", text: "Live payments open after business verification (KYB)." },
+      {
+        kind: "p",
+        text: "Live payments open once you add your business details and NearPay reviews them.",
+      },
       { kind: "button", label: "Open the dashboard", href: v.dashboard_url },
     ],
   }),
@@ -251,39 +349,44 @@ const en: { [T in TemplateName]: (v: Variables<T>) => Content } = {
     switch (v.status) {
       case "approved":
         return {
-          subject: "Your business is verified",
-          preheader: "You can now enable live payments.",
-          heading: "Business verification approved",
+          subject: "Your business details are approved",
+          preheader: "You can now turn on live mode.",
+          heading: "Business details approved",
           blocks: [
             {
               kind: "p",
-              text: "Your business verification (KYB) was approved. You can now enable live mode in the dashboard.",
+              text: "NearPay reviewed and approved the business details you submitted. You can now turn on live mode in the dashboard; it also needs an active settlement destination.",
+            },
+            {
+              kind: "p",
+              text: "Checkout shows your approved legal name with the note “Business details reviewed by NearPay”.",
             },
             { kind: "button", label: "Open the dashboard", href: v.dashboard_url },
           ],
         };
       case "rejected":
         return {
-          subject: "Your business verification was not approved",
+          subject: "Your business details were not approved",
           preheader: "Live payments are not available for this account.",
-          heading: "Business verification not approved",
+          heading: "Business details not approved",
           blocks: [
             {
               kind: "p",
-              text: "We could not approve your business verification (KYB), so live payments are not available for this account. Test mode keeps working.",
+              text: "NearPay could not approve the business details you submitted, so live payments are not available for this account. Test mode keeps working.",
             },
             { kind: "note", text: "Contact NearPay support if you have questions." },
           ],
         };
       case "needs_info":
         return {
-          subject: "We need more information to verify your business",
-          preheader: "Your verification is paused until you reply.",
+          subject: "We need more information about your business",
+          preheader: "The review is paused until you update your details.",
           heading: "More information needed",
           blocks: [
-            { kind: "p", text: "To continue your business verification (KYB), we need the following:" },
-            { kind: "p", text: v.reason ?? "Additional documents (see the dashboard)." },
-            { kind: "button", label: "Continue verification", href: v.dashboard_url },
+            { kind: "p", text: "To continue reviewing your business details, NearPay needs the following:" },
+            { kind: "callout", tone: "info", text: v.requested_info ?? "See the dashboard for what is missing." },
+            { kind: "p", text: "Update your business details in the dashboard and submit them again." },
+            { kind: "button", label: "Update business details", href: v.dashboard_url },
           ],
         };
     }
@@ -346,7 +449,7 @@ const en: { [T in TemplateName]: (v: Variables<T>) => Content } = {
       preheader: `${price} paid to ${v.merchant_name}.`,
       heading: `Receipt from ${v.merchant_name}`,
       blocks: [
-        ...(v.livemode ? [] : [{ kind: "note", text: "Test mode: no real funds moved." } as const]),
+        ...(v.livemode ? [] : [{ kind: "callout", tone: "warning", text: TEST_MODE } as const]),
         {
           kind: "facts",
           rows: [
@@ -412,6 +515,188 @@ const en: { [T in TemplateName]: (v: Variables<T>) => Content } = {
       { kind: "button", label: "Open webhooks", href: v.dashboard_url },
     ],
   }),
+  "refund.receipt": (v) => {
+    const returned = v.received_display ?? v.refunded_display;
+    const original =
+      v.original_currency === "asset" ? null : formatPrice(v.original_amount, v.original_currency, v.refunded_display);
+    return {
+      subject: `Refund from ${v.merchant_name}${v.livemode ? "" : " [test]"}`,
+      preheader: `${returned} returned to your wallet by ${v.merchant_name}.`,
+      heading: `Refund from ${v.merchant_name}`,
+      blocks: [
+        ...(v.livemode ? [] : [{ kind: "callout", tone: "warning", text: TEST_MODE } as const]),
+        {
+          kind: "p",
+          text: `${v.merchant_name} refunded your payment. The funds reached your wallet and the transfer is confirmed on-chain.`,
+        },
+        {
+          kind: "facts",
+          rows: [
+            ["Amount returned", returned],
+            ...(v.received_display && v.received_display !== v.refunded_display
+              ? ([["Sent by the merchant", v.refunded_display]] as const)
+              : []),
+            ["Returned to", v.recipient_display],
+            ...(original ? ([["Original payment", original]] as const) : []),
+            ["Payment", v.payment_id],
+            ["Refund", v.refund_id],
+          ],
+        },
+        ...(v.evidence_links.length
+          ? [{ kind: "links", label: "On-chain proof of the refund:", hrefs: v.evidence_links } as const]
+          : []),
+        {
+          kind: "note",
+          text: `${v.merchant_name} sent this refund from their own wallet; NearPay prepared it and never held the funds. Contact the merchant about the purchase itself.`,
+        },
+      ],
+    };
+  },
+  "security.member_changed": (v) => {
+    const member = v.member_email ?? `A team member (${v.member_id})`;
+    const actor = v.actor_email ?? v.actor_id;
+    const role = ROLE_LABELS[v.role];
+    const copy = {
+      added: {
+        subject: "Security alert: a team member was added",
+        heading: "Team member added",
+        text: `${member} now has access to your NearPay account as ${role}.${actor ? "" : " They accepted an invitation sent from your account."}`,
+      },
+      removed: {
+        subject: "Security alert: a team member was removed",
+        heading: "Team member removed",
+        text: `${member} no longer has access to your NearPay account.`,
+      },
+      role_changed: {
+        subject: "Security alert: a team member's role changed",
+        heading: "Team member role changed",
+        text: `${member} now has the ${role} role${v.previous_role ? ` (was ${ROLE_LABELS[v.previous_role]})` : ""}.`,
+      },
+    }[v.change];
+    return {
+      subject: copy.subject,
+      preheader: "Check that you expected this change.",
+      heading: copy.heading,
+      blocks: [
+        { kind: "p", text: copy.text },
+        {
+          kind: "facts",
+          rows: [
+            ["Member", v.member_email ?? v.member_id],
+            ["Role", role],
+            ...(v.change === "role_changed" && v.previous_role
+              ? ([["Previous role", ROLE_LABELS[v.previous_role]]] as const)
+              : []),
+            ...(actor ? ([["Changed by", actor]] as const) : []),
+          ],
+        },
+        {
+          kind: "p",
+          text: "If you did not expect this change, sign in now, review your team and contact NearPay support.",
+        },
+        { kind: "button", label: "Review your team", href: v.dashboard_url },
+      ],
+    };
+  },
+  "team.invitation": (v) => {
+    const validity = formatDuration(v.expires_in_minutes);
+    return {
+      subject: `You're invited to join ${v.account_display_name} on NearPay`,
+      preheader: `The invitation works once and expires in ${validity}.`,
+      heading: `Join ${v.account_display_name} on NearPay`,
+      blocks: [
+        {
+          kind: "p",
+          text: `You've been invited to join ${v.account_display_name} on NearPay with the ${ROLE_LABELS[v.role]} role.`,
+        },
+        { kind: "p", text: `Use the button below within ${validity}. The link works once.` },
+        { kind: "button", label: "Accept invitation", href: v.link_url },
+        {
+          kind: "note",
+          text: `Accept only if you expected this invitation. Never share this link: it adds you to the account. ${IGNORE}`,
+        },
+      ],
+    };
+  },
+  "ops.enrolment": (v) => {
+    const validity = formatDuration(v.expires_in_minutes);
+    return {
+      subject: "[NearPay ops] Set up your console access",
+      preheader: `The link works once and expires in ${validity}.`,
+      heading: "Set up NearPay console access",
+      blocks: [
+        {
+          kind: "p",
+          text: `You were added to the NearPay console as ${OPS_ROLE_LABELS[v.role]}. Use the button below within ${validity} to register your hardware security key. The link works once.`,
+        },
+        { kind: "button", label: "Register security key", href: v.link_url },
+        {
+          kind: "note",
+          text: "The console accepts hardware security keys only. Never share this link. If you did not expect this email, tell the NearPay security team.",
+        },
+      ],
+    };
+  },
+  "security.destination_approval": (v) => ({
+    subject: "Action needed: approve a new settlement destination",
+    preheader: "A second owner or admin must approve it. Check the address and fingerprint first.",
+    heading: "Settlement destination awaiting approval",
+    blocks: [
+      {
+        kind: "p",
+        text: `A teammate added a settlement destination to your account. It needs ${v.approvals_required === 1 ? "1 approval" : `${v.approvals_required} approvals`} from different owners or admins (${v.approvals_received} so far) before its 24-hour cool-off starts. No payments settle to it until then.`,
+      },
+      ...destinationFacts(v),
+      {
+        kind: "p",
+        text: "Before you approve, confirm the address and fingerprint with the teammate who added it, outside email. If you do not recognise it, reject it in the dashboard.",
+      },
+      { kind: "button", label: "Review destination", href: v.dashboard_url },
+    ],
+  }),
+  "kyb.submitted": (v) => ({
+    subject: "We received your business details",
+    preheader: "NearPay will review them and email you the outcome.",
+    heading: "Business details received",
+    blocks: [
+      {
+        kind: "p",
+        text: `Your business details were submitted on ${formatDate(v.submitted_at)}. NearPay will review the details you declared and email you when the review is done.`,
+      },
+      {
+        kind: "p",
+        text: "Test mode keeps working while you wait. Live mode becomes available once the review is approved and you have an active settlement destination.",
+      },
+      { kind: "button", label: "Open the dashboard", href: v.dashboard_url },
+    ],
+  }),
+  "ops.approval_requested": (v) => {
+    const label = APPROVAL_ACTIONS[v.action] ?? v.action;
+    return {
+      subject: `[NearPay ops] Approval needed: ${label}${v.target_type === "account" ? ` ${v.target_id}` : ""}`,
+      preheader: `A second ops_admin must approve before ${formatDate(v.expires_at)}.`,
+      heading: "Second approval needed",
+      blocks: [
+        {
+          kind: "p",
+          text: `An operator requested this action. Nothing changes until an ops_admin other than the requester approves it in the console. The request expires on ${formatDate(v.expires_at)}.`,
+        },
+        {
+          kind: "facts",
+          rows: [
+            ["Action", label],
+            ["Target", v.target_id],
+            ["Reason", v.reason],
+            ["Requested by", `${v.requested_by} (${OPS_ROLE_LABELS[v.requested_by_role]})`],
+            ["Requested", formatDate(v.requested_at)],
+            ["Request", v.approval_id],
+          ],
+        },
+        { kind: "button", label: "Open the console", href: v.console_url },
+        { kind: "note", text: "Check the reason with the requester before you approve. Rejecting executes nothing." },
+      ],
+    };
+  },
 };
 
 const COPY: Record<Locale, typeof en> = { en };

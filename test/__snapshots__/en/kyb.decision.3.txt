@@ -1,12 +1,14 @@
-Subject: We need more information to verify your business
+Subject: We need more information about your business
 
 More information needed
 
-To continue your business verification (KYB), we need the following:
+To continue reviewing your business details, NearPay needs the following:
 
-Upload a commercial register extract dated within 3 months.
+Add the registration number shown on your company register entry.
 
-Continue verification: https://dashboard.nearpay.localhost/
+Update your business details in the dashboard and submit them again.
+
+Update business details: https://dashboard.nearpay.localhost/
 
 --
 NearPay · non-custodial payments on NEAR Intents · A transactional message, never marketing.

@@ -1,0 +1,14 @@
+Subject: We need more information about your business
+
+More information needed
+
+To continue reviewing your business details, NearPay needs the following:
+
+See the dashboard for what is missing.
+
+Update your business details in the dashboard and submit them again.
+
+Update business details: https://dashboard.nearpay.localhost/
+
+--
+NearPay · non-custodial payments on NEAR Intents · A transactional message, never marketing.

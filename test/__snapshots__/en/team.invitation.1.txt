@@ -1,0 +1,14 @@
+Subject: You're invited to join Acme Test Shop on NearPay
+
+Join Acme Test Shop on NearPay
+
+You've been invited to join Acme Test Shop on NearPay with the Finance role.
+
+Use the button below within 7 days. The link works once.
+
+Accept invitation: https://dashboard.nearpay.localhost/auth/invite#token=jkl
+
+Accept only if you expected this invitation. Never share this link: it adds you to the account. If you did not expect this email, you can ignore it.
+
+--
+NearPay · non-custodial payments on NEAR Intents · A transactional message, never marketing.

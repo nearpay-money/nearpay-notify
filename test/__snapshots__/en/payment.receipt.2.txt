@@ -2,7 +2,7 @@ Subject: Your receipt from Acme <Test> & Co [test]
 
 Receipt from Acme <Test> & Co
 
-Test mode: no real funds moved.
+Test mode — no real funds moved.
 
 Amount: 2.00 USDC (Base)
 Settled: 2.00 USDC (Base)

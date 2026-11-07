@@ -1,0 +1,22 @@
+Subject: Action needed: approve a new settlement destination
+
+Settlement destination awaiting approval
+
+A teammate added a settlement destination to your account. It needs 2 approvals from different owners or admins (1 so far) before its 24-hour cool-off starts. No payments settle to it until then.
+
+Label: Treasury (Base)
+Chain: Base
+Asset: nep141:base-0x833589fcd6edb6e08f4c7c32d4f71b54bda02913.omft.near
+
+Address:
+  0x52908400098527886e0f7030069857d2e4169ee7
+
+Fingerprint (compare with the one shown in the dashboard):
+  7KQ2-M9XA-31
+
+Before you approve, confirm the address and fingerprint with the teammate who added it, outside email. If you do not recognise it, reject it in the dashboard.
+
+Review destination: https://dashboard.nearpay.localhost/
+
+--
+NearPay · non-custodial payments on NEAR Intents · A transactional message, never marketing.

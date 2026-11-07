@@ -1,0 +1,16 @@
+Subject: Security alert: a team member was added
+
+Team member added
+
+dana@acme.example now has access to your NearPay account as Admin.
+
+Member: dana@acme.example
+Role: Admin
+Changed by: owner@acme.example
+
+If you did not expect this change, sign in now, review your team and contact NearPay support.
+
+Review your team: https://dashboard.nearpay.localhost/
+
+--
+NearPay · non-custodial payments on NEAR Intents · A transactional message, never marketing.

@@ -1,5 +1,5 @@
 /**
- * Contract (foundations §16): every Stage-1 notify route is bound, every subject the catalogue
+ * Contract (foundations §16): every notify route is bound (incl. the Stage 2 API templates), every subject the catalogue
  * routes to notify has a handler, responses and errors have the spec's shapes, and the peer routes
  * notify calls exist with the scopes notify holds (the mocks in the worker tests enforce the rest).
  */
@@ -9,6 +9,7 @@ import { unimplementedRoutes } from "@nearpay-internal/service";
 import {
   getNotificationRecipients,
   getReceiptContext,
+  getRefundReceiptContext,
   INTERNAL_ROUTES,
   SUBJECTS,
   type Subject,
@@ -17,6 +18,8 @@ import {
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { notifyRoutes } from "../../src/api/routes.js";
 import { notifyHandlers } from "../../src/consumers/handlers.js";
+import { isTemplate, type TemplateName } from "../../src/domain/template/catalogue.js";
+import { SAMPLES } from "../../src/domain/template/samples.js";
 import { type Stack, startStack } from "../support/stack.js";
 
 let s: Stack;
@@ -30,12 +33,52 @@ afterAll(async () => {
 const ALL = [...PUBLIC_ROUTES, ...INTERNAL_ROUTES];
 
 describe("routes", () => {
-  it("binds every Stage-1 notify route, and nothing else", () => {
+  it("binds every notify route (Stage 1 and 2), and nothing else", () => {
     const bindings = notifyRoutes({} as never);
     expect(unimplementedRoutes("notify", ALL, bindings).map((r) => r.id)).toEqual([]);
     expect(bindings.map((b) => b.route.id)).toEqual(
-      ALL.filter((r) => r.service === "notify" && r.stage <= 1).map((r) => r.id),
+      ALL.filter((r) => r.service === "notify" && r.stage <= 2).map((r) => r.id),
     );
+  });
+
+  it("every template the API accepts has a catalogue entry and samples", () => {
+    const options = (sendMessage.body as unknown as { options: { shape: { template: { value: string } } }[] }).options;
+    const templates = options.map((o) => o.shape.template.value).sort();
+    expect(templates).toEqual(["auth.magic_link", "ops.enrolment", "team.invitation"]);
+    for (const t of templates) {
+      expect(isTemplate(t), t).toBe(true);
+      expect(SAMPLES[t as TemplateName].length, t).toBeGreaterThan(0);
+    }
+  });
+
+  it("the API's variables for each template are accepted by the catalogue", async () => {
+    for (const body of [
+      {
+        template: "team.invitation",
+        to: "invitee@example.test",
+        variables: {
+          link_url: "https://dashboard.nearpay.localhost/auth/invite#token=t",
+          account_display_name: "Acme",
+          role: "viewer",
+          expires_in_minutes: 10_080,
+        },
+        dedupe_key: "inv-contract-1",
+      },
+      {
+        template: "ops.enrolment",
+        to: "op@example.test",
+        variables: {
+          link_url: "https://ops.nearpay.localhost/auth/enrol#token=t",
+          role: "ops",
+          expires_in_minutes: 1440,
+        },
+        dedupe_key: "enrol-contract-1",
+      },
+    ]) {
+      const r = await s.call("POST", "/internal/messages", { body });
+      expect(r.status, JSON.stringify(r.body)).toBe(202);
+      expect(sendMessage.response.safeParse(r.body).success).toBe(true);
+    }
   });
 
   it("responses and errors match the spec", async () => {
@@ -61,7 +104,7 @@ describe("routes", () => {
   });
 
   it("the peer routes notify calls are authorized for notify's service scopes", () => {
-    for (const route of [getNotificationRecipients, getReceiptContext]) {
+    for (const route of [getNotificationRecipients, getReceiptContext, getRefundReceiptContext]) {
       const scopes = route.auth.filter((a) => a.startsWith("service:")).map((a) => a.slice("service:".length));
       expect(
         scopes.some((sc) => (SERVICE_CLIENT_SCOPES.notify as readonly string[]).includes(sc)),

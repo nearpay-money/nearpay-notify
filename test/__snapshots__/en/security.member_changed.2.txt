@@ -1,0 +1,15 @@
+Subject: Security alert: a team member was added
+
+Team member added
+
+A team member (usr_01m6pm3ppnengb0aaefsa11e3m) now has access to your NearPay account as Developer. They accepted an invitation sent from your account.
+
+Member: usr_01m6pm3ppnengb0aaefsa11e3m
+Role: Developer
+
+If you did not expect this change, sign in now, review your team and contact NearPay support.
+
+Review your team: https://dashboard.nearpay.localhost/
+
+--
+NearPay · non-custodial payments on NEAR Intents · A transactional message, never marketing.

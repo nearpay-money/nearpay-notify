@@ -4,7 +4,7 @@ Welcome, Acme Test Shop
 
 Your account is ready in test mode: create a test payment, add a settlement destination and an API key from the dashboard.
 
-Live payments open after business verification (KYB).
+Live payments open once you add your business details and NearPay reviews them.
 
 Open the dashboard: https://dashboard.nearpay.localhost/
 
