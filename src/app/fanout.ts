@@ -7,6 +7,7 @@
 import type { Envelope } from "@nearpay-internal/bus";
 import { withTx } from "@nearpay-internal/db";
 import { toUuid } from "@nearpay-internal/ids";
+import { chooseRecipients, lookupEmails } from "../domain/message/audience.js";
 import { recipientHash } from "../domain/message/policy.js";
 import { type Plan, planFor, type RoutingOptions } from "../domain/message/routing.js";
 import type { Peers } from "../infra/clients/peers.js";
@@ -36,8 +37,8 @@ async function targets(d: FanoutDeps, plan: Plan): Promise<Target[] | string> {
     case "account": {
       const list = await d.peers.recipients(a.accountId, a.recipients);
       if (list === null) return `identity does not know ${a.accountId}`;
-      const chosen = a.roles ? list.filter((r) => (a.roles as readonly string[]).includes(r.role)) : list;
-      return chosen.map((r) => ({ key: r.user_id, to: r.email, variables: plan.variables }));
+      const variables = { ...plan.variables, ...lookupEmails(list, plan.userEmails) };
+      return chooseRecipients(list, a).map((r) => ({ key: r.user_id, to: r.email, variables }));
     }
     case "customer": {
       const ctx = await d.peers.receiptContext(a.paymentIntentId);
@@ -54,6 +55,30 @@ async function targets(d: FanoutDeps, plan: Plan): Promise<Target[] | string> {
             amount: ctx.amount,
             currency: ctx.currency,
             settled_display: ctx.settled.display,
+            evidence_links: ctx.evidence_links.slice(0, 10),
+          },
+        },
+      ];
+    }
+    case "refund_customer": {
+      const ctx = await d.peers.refundReceiptContext(a.refundId);
+      if (ctx === null) return `payments does not know ${a.refundId}`;
+      if (!ctx.email_receipts) return "the account turned receipts off";
+      if (!ctx.customer_email) return "no customer email is on record";
+      // fail closed: a test refund never mails as live (or slips past the test-mode receipt switch)
+      if (ctx.livemode !== (plan.livemode === true)) return "payments reports another mode for the refund";
+      return [
+        {
+          key: "customer",
+          to: ctx.customer_email,
+          variables: {
+            ...plan.variables,
+            merchant_name: ctx.merchant_display_name,
+            original_amount: ctx.original_amount,
+            original_currency: ctx.original_currency,
+            refunded_display: ctx.refunded.display,
+            received_display: ctx.received?.display ?? null,
+            recipient_display: ctx.recipient_display,
             evidence_links: ctx.evidence_links.slice(0, 10),
           },
         },

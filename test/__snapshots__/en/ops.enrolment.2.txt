@@ -1,0 +1,12 @@
+Subject: [NearPay ops] Set up your console access
+
+Set up NearPay console access
+
+You were added to the NearPay console as Operator. Use the button below within 90 minutes to register your hardware security key. The link works once.
+
+Register security key: https://ops.nearpay.localhost/auth/enrol#token=pqr
+
+The console accepts hardware security keys only. Never share this link. If you did not expect this email, tell the NearPay security team.
+
+--
+NearPay · non-custodial payments on NEAR Intents · A transactional message, never marketing.

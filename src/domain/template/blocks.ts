@@ -9,7 +9,9 @@ export type Block =
   | { readonly kind: "code"; readonly label: string; readonly text: string }
   | { readonly kind: "button"; readonly label: string; readonly href: string }
   | { readonly kind: "links"; readonly label: string; readonly hrefs: readonly string[] }
-  | { readonly kind: "note"; readonly text: string };
+  | { readonly kind: "note"; readonly text: string }
+  /** A highlighted line: `info` (soft mint) for requests and hints, `warning` (warm cream) for test mode and cautions. */
+  | { readonly kind: "callout"; readonly tone: "info" | "warning"; readonly text: string };
 
 export interface Content {
   readonly subject: string;
@@ -51,9 +53,35 @@ export function safeSubject(s: string): string {
   return one.length > 200 ? `${one.slice(0, 197)}...` : one;
 }
 
-const TEXT = 'font-family="Helvetica, Arial, sans-serif" font-size="15px" line-height="22px" color="#1f2328"';
-const NOTE = 'font-family="Helvetica, Arial, sans-serif" font-size="12px" line-height="18px" color="#656d76"';
-const MONO = 'font-family="Menlo, Consolas, monospace" font-size="13px" line-height="20px" color="#1f2328"';
+/**
+ * NearPay brand (nearpay-brain product/design-system.md §2): deep ink text, NearPay teal actions
+ * and links, warm canvas and fine borders; DM Sans when the reader has it, else the system sans
+ * (mail clients cannot load the self-hosted font, and remote fonts would be a tracking request).
+ */
+export const BRAND = {
+  ink: "#132D31",
+  textSecondary: "#52676B",
+  teal: "#087A68",
+  canvas: "#F7F9F8",
+  border: "#DCE5E3",
+  softMint: "#EAF5F1",
+  warningBg: "#FFF5E4",
+  warningFg: "#895710",
+  sans: "'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+  mono: "SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace",
+} as const;
+
+const TEXT = `font-family="${BRAND.sans}" font-size="15px" line-height="24px" color="${BRAND.ink}"`;
+// one value per attribute: MJML keeps the first of duplicated attributes
+const HEADING = `font-family="${BRAND.sans}" font-size="22px" line-height="30px" font-weight="600" letter-spacing="-0.01em" color="${BRAND.ink}" padding-bottom="10px"`;
+const NOTE = `font-family="${BRAND.sans}" font-size="13px" line-height="20px" color="${BRAND.textSecondary}"`;
+const LABEL = `font-family="${BRAND.sans}" font-size="13px" line-height="20px" color="${BRAND.textSecondary}"`;
+const BOX = `font-family="${BRAND.sans}" font-size="14px" line-height="20px" color="${BRAND.ink}"`;
+
+const CALLOUT: Record<"info" | "warning", { bg: string; fg: string }> = {
+  info: { bg: BRAND.softMint, fg: BRAND.ink },
+  warning: { bg: BRAND.warningBg, fg: BRAND.warningFg },
+};
 
 function blockMjml(b: Block): string {
   switch (b.kind) {
@@ -61,22 +89,26 @@ function blockMjml(b: Block): string {
       return `<mj-text ${TEXT}>${escapeHtml(b.text)}</mj-text>`;
     case "note":
       return `<mj-text ${NOTE}>${escapeHtml(b.text)}</mj-text>`;
+    case "callout": {
+      const c = CALLOUT[b.tone];
+      return `<mj-table ${BOX} padding="8px 24px"><tr><td style="background-color:${c.bg};color:${c.fg};border-radius:8px;padding:12px 16px">${escapeHtml(b.text)}</td></tr></mj-table>`;
+    }
     case "code":
-      return `<mj-text ${NOTE} padding-bottom="0">${escapeHtml(b.label)}</mj-text><mj-text ${MONO} padding-top="2px">${escapeHtml(b.text)}</mj-text>`;
+      return `<mj-text ${LABEL} padding-bottom="4px">${escapeHtml(b.label)}</mj-text><mj-table ${BOX} padding-top="0"><tr><td style="background-color:${BRAND.canvas};border:1px solid ${BRAND.border};border-radius:8px;padding:10px 12px;font-family:${BRAND.mono};font-size:13px;word-break:break-all">${escapeHtml(b.text)}</td></tr></mj-table>`;
     case "facts":
-      return `<mj-table ${TEXT} cellpadding="4px">${b.rows
+      return `<mj-table ${BOX} cellpadding="0">${b.rows
         .map(
-          ([k, v]) =>
-            `<tr><td style="color:#656d76;width:40%;vertical-align:top">${escapeHtml(k)}</td><td style="vertical-align:top;word-break:break-all">${escapeHtml(v)}</td></tr>`,
+          ([k, v], i) =>
+            `<tr><td style="color:${BRAND.textSecondary};width:40%;vertical-align:top;padding:8px 12px 8px 0;${i ? `border-top:1px solid ${BRAND.border}` : ""}">${escapeHtml(k)}</td><td style="vertical-align:top;padding:8px 0;word-break:break-word;${i ? `border-top:1px solid ${BRAND.border}` : ""}">${escapeHtml(v)}</td></tr>`,
         )
         .join("")}</mj-table>`;
     case "button":
-      return `<mj-button href="${escapeHtml(safeHref(b.href))}" background-color="#1f2328" color="#ffffff" font-family="Helvetica, Arial, sans-serif" font-size="15px" border-radius="6px" align="left">${escapeHtml(b.label)}</mj-button>`;
+      return `<mj-button href="${escapeHtml(safeHref(b.href))}" background-color="${BRAND.teal}" color="#FFFFFF" font-family="${BRAND.sans}" font-size="15px" font-weight="600" border-radius="8px" align="left">${escapeHtml(b.label)}</mj-button>`;
     case "links":
       return `<mj-text ${TEXT}>${escapeHtml(b.label)}<br/>${b.hrefs
         .map((h) => {
           const href = escapeHtml(safeHref(h));
-          return `<a href="${href}" style="color:#0969da;word-break:break-all">${href}</a>`;
+          return `<a href="${href}" style="color:${BRAND.teal};word-break:break-all">${href}</a>`;
         })
         .join("<br/>")}</mj-text>`;
   }
@@ -84,10 +116,7 @@ function blockMjml(b: Block): string {
 
 /** MJML of the content blocks, to be placed in the layout's `{{content}}` slot. */
 export function contentMjml(c: Content): string {
-  return [
-    `<mj-text ${TEXT} font-size="20px" font-weight="bold">${escapeHtml(c.heading)}</mj-text>`,
-    ...c.blocks.map(blockMjml),
-  ].join("\n");
+  return [`<mj-text ${HEADING}>${escapeHtml(c.heading)}</mj-text>`, ...c.blocks.map(blockMjml)].join("\n");
 }
 
 /** Plain-text part (every mail is multipart: some clients and filters read only the text). */
@@ -97,6 +126,7 @@ export function contentText(c: Content, footer: string): string {
     switch (b.kind) {
       case "p":
       case "note":
+      case "callout":
         lines.push(b.text, "");
         break;
       case "code":

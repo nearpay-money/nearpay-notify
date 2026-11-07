@@ -1,0 +1,20 @@
+Subject: Refund from Acme Test Shop
+
+Refund from Acme Test Shop
+
+Acme Test Shop refunded your payment. The funds reached your wallet and the transfer is confirmed on-chain.
+
+Amount returned: 24.91 USDT (Arbitrum)
+Sent by the merchant: 25.00 USDC (Base)
+Returned to: 0xab12…9fcd on Arbitrum
+Original payment: 25.00 USD
+Payment: pi_01m6pm3ppnengb0aaefsa11e3j
+Refund: re_01m6pm3ppnengb0aaefsa11e3j
+
+On-chain proof of the refund:
+  https://arbiscan.io/tx/0x5c1f0e3a9b7d2c4e6f8a0b1c3d5e7f9a1b3c5d7e9f0a2b4c6d8e0f1a3b5c7d9e
+
+Acme Test Shop sent this refund from their own wallet; NearPay prepared it and never held the funds. Contact the merchant about the purchase itself.
+
+--
+NearPay · non-custodial payments on NEAR Intents · A transactional message, never marketing.

@@ -19,9 +19,13 @@ export type Audience =
       readonly accountId: string;
       readonly recipients: RecipientKind;
       readonly roles?: readonly Role[];
+      /** Users never mailed (e.g. who already approved a destination). */
+      readonly exclude?: readonly string[];
     }
   /** The paying customer (payments `receipt-context`), if the session collected an email. */
   | { readonly kind: "customer"; readonly paymentIntentId: string }
+  /** The refunded customer (payments refund `receipt-context`), if an email is on record. */
+  | { readonly kind: "refund_customer"; readonly refundId: string }
   /** `NP_SECURITY_CONTACTS` (ops). */
   | { readonly kind: "security_contacts" };
 
@@ -31,6 +35,11 @@ export interface Plan {
   readonly variables: Record<string, unknown>;
   readonly accountId: string | null;
   readonly livemode: boolean | null;
+  /**
+   * Variables filled from the account's recipient list at fan-out (`variable → user id`): member
+   * events carry ids only, so an owner/admin's email is shown when identity lists them, else null.
+   */
+  readonly userEmails?: Readonly<Record<string, string | null>>;
 }
 
 /** The envelope fields routing reads (structurally an `@nearpay-internal/bus` Envelope). */
@@ -43,6 +52,8 @@ export interface RoutedEvent {
 
 export interface RoutingOptions {
   readonly dashboardOrigin: string;
+  /** Console origin (links in ops approval mails). */
+  readonly consoleOrigin: string;
   readonly testModeReceipts: boolean;
   readonly chainName: (caip2: string) => string;
   /** Destination fingerprint, or null when it cannot be computed (unknown chain). */
@@ -68,12 +79,23 @@ export const NOTIFY_SUBJECTS = [
   "evt.sentinel.kill_switch.released",
   "evt.sentinel.audit_finding.created",
   "evt.webhooks.endpoint.disabled",
+  // stage 2 (step 2.1 contracts, spec 0.2.0)
+  "evt.payments.refund.succeeded",
+  "evt.identity.member.added",
+  "evt.identity.member.removed",
+  "evt.identity.member.role_changed",
+  "evt.identity.settlement_destination.pending_approval",
+  "evt.compliance.kyb.submitted",
+  "evt.compliance.account.action_requested",
+  "evt.sentinel.kill_switch.release_requested",
 ] as const satisfies readonly Subject[];
 
 type O = Record<string, unknown>;
 const str = (o: O, k: string) => o[k] as string;
 
 const OWNERS: readonly Role[] = ["owner"];
+
+const unixIso = (v: unknown) => new Date((v as number) * 1000).toISOString();
 
 function destinationVariables(d: O, o: RoutingOptions) {
   return {
@@ -93,8 +115,14 @@ export function planFor(e: RoutedEvent, o: RoutingOptions): { plan: Plan } | { s
   const lm = e.livemode;
   const account = (accountId: string, recipients: RecipientKind, roles?: readonly Role[]): Audience =>
     roles ? { kind: "account", accountId, recipients, roles } : { kind: "account", accountId, recipients };
-  const plan = (template: TemplateName, audience: Audience, variables: O, accountId: string | null) => ({
-    plan: { template, audience, variables, accountId, livemode: lm },
+  const plan = (
+    template: TemplateName,
+    audience: Audience,
+    variables: O,
+    accountId: string | null,
+    extra: Pick<Plan, "userEmails"> = {},
+  ) => ({
+    plan: { template, audience, variables, accountId, livemode: lm, ...extra },
   });
 
   switch (e.subject as (typeof NOTIFY_SUBJECTS)[number]) {
@@ -153,8 +181,8 @@ export function planFor(e: RoutedEvent, o: RoutingOptions): { plan: Plan } | { s
         account(str(x, "account_id"), "security", OWNERS),
         {
           status,
-          // only a request for information is shown; other reasons are internal (audited)
-          reason: status === "needs_info" ? ((x.reason as string | null) ?? null) : null,
+          // only what ops asked for is shown; the decision `reason` is internal (audited), never mailed
+          requested_info: status === "needs_info" ? ((x.requested_info as string | null | undefined) ?? null) : null,
           dashboard_url: o.dashboardOrigin,
         },
         str(x, "account_id"),
@@ -226,6 +254,80 @@ export function planFor(e: RoutedEvent, o: RoutingOptions): { plan: Plan } | { s
         },
         str(x, "account_id"),
       );
+    // stage 2
+    case "evt.payments.refund.succeeded":
+      if (lm === false && !o.testModeReceipts) return { skip: "test-mode receipts are off" };
+      return plan(
+        "refund.receipt",
+        { kind: "refund_customer", refundId: str(x, "id") },
+        { refund_id: str(x, "id"), payment_id: str(x, "payment_intent"), livemode: lm === true },
+        null,
+      );
+    case "evt.identity.member.added":
+    case "evt.identity.member.removed":
+    case "evt.identity.member.role_changed": {
+      const actor = (x.actor_user_id as string | null) ?? null;
+      return plan(
+        "security.member_changed",
+        account(str(x, "account_id"), "security", OWNERS),
+        {
+          change: e.subject.slice("evt.identity.member.".length),
+          member_id: str(x, "user_id"),
+          role: str(x, "role"),
+          previous_role: (x.previous_role as string | null) ?? null,
+          actor_id: actor,
+          dashboard_url: o.dashboardOrigin,
+        },
+        str(x, "account_id"),
+        { userEmails: { member_email: str(x, "user_id"), actor_email: actor } },
+      );
+    }
+    case "evt.identity.settlement_destination.pending_approval": {
+      const approval = (x.approval as O | null | undefined) ?? null;
+      const approvedBy = (approval?.approved_by as string[] | undefined) ?? [];
+      if (approval?.rejected_by) return { skip: "the destination was rejected" };
+      return plan(
+        "security.destination_approval",
+        // the creator (counted in `approved_by`) and earlier approvers cannot approve again
+        { kind: "account", accountId: str(x, "account"), recipients: "security", exclude: approvedBy },
+        {
+          ...destinationVariables(x, o),
+          approvals_required: (approval?.required as number | undefined) ?? 2,
+          approvals_received: approvedBy.length,
+        },
+        str(x, "account"),
+      );
+    }
+    case "evt.compliance.kyb.submitted":
+      return plan(
+        "kyb.submitted",
+        account(str(x, "account_id"), "security", OWNERS),
+        { submitted_at: str(x, "submitted_at"), dashboard_url: o.dashboardOrigin },
+        str(x, "account_id"),
+      );
+    case "evt.compliance.account.action_requested":
+    case "evt.sentinel.kill_switch.release_requested": {
+      if (x.status !== "pending") return { skip: `the request is ${String(x.status)}` };
+      const target = x.target as O;
+      const requester = x.requested_by as O;
+      return plan(
+        "ops.approval_requested",
+        { kind: "security_contacts" },
+        {
+          approval_id: str(x, "id"),
+          action: str(x, "action"),
+          target_type: str(target, "type"),
+          target_id: str(target, "id"),
+          reason: str(x, "reason") || "(no reason given)",
+          requested_by: str(requester, "id"),
+          requested_by_role: str(requester, "role"),
+          requested_at: unixIso(x.requested_at),
+          expires_at: unixIso(x.expires_at),
+          console_url: o.consoleOrigin,
+        },
+        target.type === "account" ? str(target, "id") : null,
+      );
+    }
     default:
       return { skip: `notify does not handle ${e.subject}` };
   }

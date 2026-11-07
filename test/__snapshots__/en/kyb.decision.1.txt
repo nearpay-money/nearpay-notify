@@ -1,8 +1,10 @@
-Subject: Your business is verified
+Subject: Your business details are approved
 
-Business verification approved
+Business details approved
 
-Your business verification (KYB) was approved. You can now enable live mode in the dashboard.
+NearPay reviewed and approved the business details you submitted. You can now turn on live mode in the dashboard; it also needs an active settlement destination.
+
+Checkout shows your approved legal name with the note “Business details reviewed by NearPay”.
 
 Open the dashboard: https://dashboard.nearpay.localhost/
 

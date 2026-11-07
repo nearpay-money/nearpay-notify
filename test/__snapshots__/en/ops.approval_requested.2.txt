@@ -1,0 +1,19 @@
+Subject: [NearPay ops] Approval needed: Release the kill switch
+
+Second approval needed
+
+An operator requested this action. Nothing changes until an ops_admin other than the requester approves it in the console. The request expires on 2026-11-07 11:00 UTC.
+
+Action: Release the kill switch
+Target: ks_global
+Reason: Verifier mismatch explained by an RPC outage; checks green for 30 minutes.
+Requested by: usr_01m6pm3ppnengb0aaefsa11e3p (Ops admin)
+Requested: 2026-11-07 10:00 UTC
+Request: opa_01m6pm3ppnengb0aaefsa11e3k
+
+Open the console: https://ops.nearpay.localhost/
+
+Check the reason with the requester before you approve. Rejecting executes nothing.
+
+--
+NearPay · non-custodial payments on NEAR Intents · A transactional message, never marketing.

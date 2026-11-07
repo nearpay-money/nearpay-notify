@@ -161,6 +161,7 @@ export async function startStack(o: StackOptions = {}): Promise<Stack> {
       securityContacts: o.securityContacts ?? ["ops@nearpay.test"],
       testModeReceipts: o.testModeReceipts ?? false,
       dashboardOrigin: "https://dashboard.nearpay.localhost",
+      consoleOrigin: "https://ops.nearpay.localhost",
       identityUrl: identity.url,
       paymentsUrl: payments.url,
       serviceClientSecret: "unused-in-tests",

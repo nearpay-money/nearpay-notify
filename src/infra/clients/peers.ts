@@ -1,22 +1,26 @@
 /**
  * Owner-service clients for recipient resolution (lld/notify.md §4): identity
- * `notification-recipients` and payments `receipt-context`, both with notify's service token.
+ * `notification-recipients`, payments `receipt-context` (payments) and refund `receipt-context`
+ * (stage 2), all with notify's service token.
  */
 
 import type { RouteResponse } from "@nearpay/spec";
 import { serviceTokenClient } from "@nearpay-internal/auth";
 import { HttpError, httpClient } from "@nearpay-internal/http";
-import { getNotificationRecipients, getReceiptContext } from "@nearpay-internal/spec";
+import { getNotificationRecipients, getReceiptContext, getRefundReceiptContext } from "@nearpay-internal/spec";
 import type { RecipientKind } from "../../domain/message/routing.js";
 
 export type Recipients = RouteResponse<typeof getNotificationRecipients>["recipients"];
 export type ReceiptContext = RouteResponse<typeof getReceiptContext>;
+export type RefundReceiptContext = RouteResponse<typeof getRefundReceiptContext>;
 
 export interface Peers {
   /** null when identity does not know the account. */
   recipients(accountId: string, kind: RecipientKind): Promise<Recipients | null>;
   /** null when payments does not know the payment intent. */
   receiptContext(paymentIntentId: string): Promise<ReceiptContext | null>;
+  /** null when payments does not know the refund. */
+  refundReceiptContext(refundId: string): Promise<RefundReceiptContext | null>;
 }
 
 const missing = (e: unknown) => e instanceof HttpError && e.status === 404;
@@ -48,6 +52,14 @@ export function httpPeers(o: {
     async receiptContext(paymentIntentId) {
       try {
         return await payments.call(getReceiptContext, { params: { id: paymentIntentId } });
+      } catch (e) {
+        if (missing(e)) return null;
+        throw e;
+      }
+    },
+    async refundReceiptContext(refundId) {
+      try {
+        return await payments.call(getRefundReceiptContext, { params: { id: refundId } });
       } catch (e) {
         if (missing(e)) return null;
         throw e;

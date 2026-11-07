@@ -25,8 +25,12 @@ export interface SendDeps {
 
 export type SendResult = MessageStatus | "skipped" | "retry";
 
-/** Templates whose variables are credentials (wiped once sent). */
-export const CREDENTIAL_TEMPLATES: ReadonlySet<string> = new Set(["auth.magic_link"]);
+/** Templates whose variables are credentials: single-use links (wiped once sent). */
+export const CREDENTIAL_TEMPLATES: ReadonlySet<string> = new Set([
+  "auth.magic_link",
+  "team.invitation",
+  "ops.enrolment",
+]);
 
 async function finish(
   d: SendDeps,
@@ -98,7 +102,7 @@ export async function sendQueued(d: SendDeps, messageId: string, attempt: number
       last_error: null,
       attempts: attempt,
     });
-    // a sent magic link is a live credential until it expires: do not keep it, even encrypted
+    // a sent magic, invitation or enrolment link is a live credential until it expires: do not keep it, even encrypted
     if (CREDENTIAL_TEMPLATES.has(m.template))
       await d.n.db
         .updateTable("messages")

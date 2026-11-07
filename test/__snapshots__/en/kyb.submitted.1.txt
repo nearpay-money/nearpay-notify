@@ -1,0 +1,12 @@
+Subject: We received your business details
+
+Business details received
+
+Your business details were submitted on 2026-11-07 09:30 UTC. NearPay will review the details you declared and email you when the review is done.
+
+Test mode keeps working while you wait. Live mode becomes available once the review is approved and you have an active settlement destination.
+
+Open the dashboard: https://dashboard.nearpay.localhost/
+
+--
+NearPay · non-custodial payments on NEAR Intents · A transactional message, never marketing.
