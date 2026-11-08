@@ -7,9 +7,12 @@ import { ErrorEnvelope, PUBLIC_ROUTES, SERVICE_CLIENT_SCOPES } from "@nearpay/sp
 import { unhandledSubjects } from "@nearpay-internal/bus";
 import { unimplementedRoutes } from "@nearpay-internal/service";
 import {
+  BILLING_EMAIL_TEMPLATES,
+  getInvoiceNotificationContext,
   getNotificationRecipients,
   getReceiptContext,
   getRefundReceiptContext,
+  getSubscriptionNotificationContext,
   INTERNAL_ROUTES,
   SUBJECTS,
   type Subject,
@@ -104,12 +107,30 @@ describe("routes", () => {
   });
 
   it("the peer routes notify calls are authorized for notify's service scopes", () => {
-    for (const route of [getNotificationRecipients, getReceiptContext, getRefundReceiptContext]) {
+    for (const route of [
+      getNotificationRecipients,
+      getReceiptContext,
+      getRefundReceiptContext,
+      getInvoiceNotificationContext,
+      getSubscriptionNotificationContext,
+    ]) {
       const scopes = route.auth.filter((a) => a.startsWith("service:")).map((a) => a.slice("service:".length));
       expect(
         scopes.some((sc) => (SERVICE_CLIENT_SCOPES.notify as readonly string[]).includes(sc)),
         route.id,
       ).toBe(true);
+    }
+  });
+});
+
+describe("billing emails (spec BILLING_EMAIL_TEMPLATES)", () => {
+  it("every billing template has a catalogue entry, samples, a consumed subject and a context route notify may call", () => {
+    const routes = new Map(INTERNAL_ROUTES.map((r) => [r.id, r]));
+    for (const [template, { subject, context }] of Object.entries(BILLING_EMAIL_TEMPLATES)) {
+      expect(isTemplate(template), template).toBe(true);
+      expect(SAMPLES[template as TemplateName].length, template).toBeGreaterThan(0);
+      expect(SUBJECTS[subject as Subject].consumers, subject).toContain("notify");
+      expect(routes.get(context)?.service, context).toBe("billing");
     }
   });
 });

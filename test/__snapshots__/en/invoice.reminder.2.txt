@@ -1,0 +1,22 @@
+Subject: Invoice ACMESH-T-00007 from Acme Test Shop is due today [test]
+
+Invoice due today
+
+Test mode — no real funds move and this invoice cannot be paid with real money.
+
+Invoice ACMESH-T-00007 from Acme Test Shop is due today.
+
+Amount due: 1250.00 USDC
+Due: 20 Nov 2026
+Invoice number: ACMESH-T-00007
+
+Pay invoice: https://pay.nearpay.localhost/i/in_01m6pm3ppnengb0aaefsa11e3k#isec_sample_Zp7nQe1c
+
+Already paid? You can ignore this reminder: a payment can take a few minutes to confirm on-chain.
+
+This link is personal: anyone who has it can see this invoice, so do not forward it. The invoice page shows the merchant's name; check it before you pay.
+
+NearPay processes payments for Acme Test Shop; payments settle directly to the merchant and NearPay never holds the funds. Contact Acme Test Shop with questions about this invoice.
+
+--
+NearPay · non-custodial payments on NEAR Intents · A transactional message, never marketing.

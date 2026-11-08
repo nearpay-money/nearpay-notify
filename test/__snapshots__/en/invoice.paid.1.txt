@@ -1,0 +1,29 @@
+Subject: Payment received: invoice ACMESH-L-00042 from Acme Test Shop
+
+Invoice ACMESH-L-00042 paid
+
+Hello Dana Whitfield,
+
+Thank you. Your payment of 108.90 USD to Acme Test Shop for invoice ACMESH-L-00042 is confirmed on-chain.
+
+Amount paid: 108.90 USD
+Settled: 108.90 USDC (NEAR)
+Invoice number: ACMESH-L-00042
+Paid: 2026-11-12 14:31 UTC
+Billing period: 1 Nov 2026 – 30 Nov 2026
+Payment: pi_01m6pm3ppnengb0aaefsa11e3j
+
+Pro plan (monthly): 79.00 USD
+Extra seat × 2: 20.00 USD
+Tax: 9.90 USD
+Total: 108.90 USD
+
+On-chain proof of settlement:
+  https://nearblocks.io/txns/8Ld3Ap4zR2yK7uR3nVbXq1sH4cW9tE6mP2fJ5gD1aB7c
+
+View invoice: https://pay.nearpay.localhost/i/in_01m6pm3ppnengb0aaefsa11e3j#isec_sample_8Hq2xVb4
+
+NearPay processes payments for Acme Test Shop; payments settle directly to the merchant and NearPay never holds the funds. Contact Acme Test Shop with questions about this invoice.
+
+--
+NearPay · non-custodial payments on NEAR Intents · A transactional message, never marketing.

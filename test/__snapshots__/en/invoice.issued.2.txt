@@ -1,0 +1,23 @@
+Subject: Invoice ACMESH-T-00007 from Acme Test Shop [test]
+
+Invoice from Acme Test Shop
+
+Test mode — no real funds move and this invoice cannot be paid with real money.
+
+Acme Test Shop sent you invoice ACMESH-T-00007. You can review it and pay with crypto on the secure invoice page.
+
+Amount due: 1250.00 USDC
+Invoice number: ACMESH-T-00007
+
+Design workshop (day) × 2: 1000.00 USDC
+Travel <flat> & expenses: 250.00 USDC
+Total: 1250.00 USDC
+
+View and pay invoice: https://pay.nearpay.localhost/i/in_01m6pm3ppnengb0aaefsa11e3k#isec_sample_Zp7nQe1c
+
+This link is personal: anyone who has it can see this invoice, so do not forward it. The invoice page shows the merchant's name; check it before you pay.
+
+NearPay processes payments for Acme Test Shop; payments settle directly to the merchant and NearPay never holds the funds. Contact Acme Test Shop with questions about this invoice.
+
+--
+NearPay · non-custodial payments on NEAR Intents · A transactional message, never marketing.

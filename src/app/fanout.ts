@@ -8,6 +8,7 @@ import type { Envelope } from "@nearpay-internal/bus";
 import { withTx } from "@nearpay-internal/db";
 import { toUuid } from "@nearpay-internal/ids";
 import { chooseRecipients, lookupEmails, type Recipient } from "../domain/message/audience.js";
+import { type InvoiceTemplate, invoiceMail, renewalMail } from "../domain/message/billing.js";
 import { recipientHash } from "../domain/message/policy.js";
 import { type Plan, planFor, type RoutingOptions } from "../domain/message/routing.js";
 import type { Peers } from "../infra/clients/peers.js";
@@ -29,6 +30,8 @@ interface Target {
   readonly key: string;
   readonly to: string;
   readonly variables: Record<string, unknown>;
+  /** Account the message is filed under when the plan could not know it (billing contexts). */
+  readonly accountId?: string;
 }
 
 async function targets(d: FanoutDeps, plan: Plan): Promise<Target[] | string> {
@@ -101,6 +104,31 @@ async function targets(d: FanoutDeps, plan: Plan): Promise<Target[] | string> {
         to,
         variables: plan.variables,
       }));
+    case "invoice_customer": {
+      const ctx = await d.peers.invoiceContext(a.invoiceId, a.reminder);
+      if (ctx === null) return `billing does not know ${a.invoiceId}`;
+      const template = plan.template as InvoiceTemplate;
+      // invoice.paid shows what settled and the on-chain proof (payments receipt context of the paying intent)
+      const receipt =
+        template === "invoice.paid" && ctx.payment_intent ? await d.peers.receiptContext(ctx.payment_intent) : null;
+      const r = invoiceMail(template, ctx, {
+        invoiceId: a.invoiceId,
+        livemode: plan.livemode,
+        variables: plan.variables,
+        receipt: receipt ? { settled_display: receipt.settled.display, evidence_links: receipt.evidence_links } : null,
+      });
+      return "skip" in r ? r.skip : [{ key: "customer", to: r.to, variables: r.variables, accountId: r.accountId }];
+    }
+    case "subscription_customer": {
+      const ctx = await d.peers.subscriptionContext(a.subscriptionId);
+      if (ctx === null) return `billing does not know ${a.subscriptionId}`;
+      const r = renewalMail(ctx, {
+        subscriptionId: a.subscriptionId,
+        livemode: plan.livemode,
+        variables: plan.variables,
+      });
+      return "skip" in r ? r.skip : [{ key: "customer", to: r.to, variables: r.variables, accountId: r.accountId }];
+    }
   }
 }
 
@@ -141,7 +169,7 @@ export async function fanOut(d: FanoutDeps, e: Envelope): Promise<{ queued: numb
         locale: "en",
         dedupeKey: `${e.id}:${x.key}`,
         source: `event:${e.subject}`,
-        accountUuid: plan.accountId ? toUuid(plan.accountId, "acct") : null,
+        accountUuid: (x.accountId ?? plan.accountId) ? toUuid((x.accountId ?? plan.accountId) as string, "acct") : null,
         livemode: plan.livemode,
       });
       if (q.created) n++;

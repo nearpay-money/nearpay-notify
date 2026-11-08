@@ -37,7 +37,14 @@ export type Audience =
   /** The refunded customer (payments refund `receipt-context`), if an email is on record. */
   | { readonly kind: "refund_customer"; readonly refundId: string }
   /** `NP_SECURITY_CONTACTS` (ops). */
-  | { readonly kind: "security_contacts" };
+  | { readonly kind: "security_contacts" }
+  /**
+   * Stage 3: the billed customer of an invoice (billing `notification-context`, `?reminder=` for a
+   * reminder). The context also carries the hosted link with the invoice secret, never the event.
+   */
+  | { readonly kind: "invoice_customer"; readonly invoiceId: string; readonly reminder: number | null }
+  /** Stage 3: the customer of a subscription (billing subscription `notification-context`). */
+  | { readonly kind: "subscription_customer"; readonly subscriptionId: string };
 
 export interface Plan {
   readonly template: TemplateName;
@@ -56,6 +63,8 @@ export interface Plan {
 /** The envelope fields routing reads (structurally an `@nearpay-internal/bus` Envelope). */
 export interface RoutedEvent {
   readonly id: string;
+  /** Envelope account UUID (null for platform events). */
+  readonly account_id?: string | null;
   readonly subject: string;
   readonly livemode: boolean | null;
   readonly data: { readonly object: unknown };
@@ -102,15 +111,30 @@ export const NOTIFY_SUBJECTS = [
   // spec 0.2.1
   "evt.identity.user.recovered",
   "evt.webhooks.endpoint.secret_rotated",
+  // stage 3 — billing (spec 0.3.0 `BILLING_EMAIL_TEMPLATES`)
+  "evt.billing.invoice.sent",
+  "evt.billing.invoice.reminder",
+  "evt.billing.invoice.paid",
+  "evt.billing.invoice.voided",
+  "evt.billing.subscription.renewal_upcoming",
 ] as const satisfies readonly Subject[];
 
 type O = Record<string, unknown>;
 const str = (o: O, k: string) => o[k] as string;
 
 const OWNERS: readonly Role[] = ["owner"];
+
+/** Billing subject → invoice template (spec `BILLING_EMAIL_TEMPLATES`, contract-tested). */
+export const INVOICE_TEMPLATES = {
+  "evt.billing.invoice.sent": "invoice.issued",
+  "evt.billing.invoice.reminder": "invoice.reminder",
+  "evt.billing.invoice.paid": "invoice.paid",
+  "evt.billing.invoice.voided": "invoice.voided",
+} as const satisfies Partial<Record<Subject, TemplateName>>;
 const MANAGERS: readonly Role[] = ["owner", "admin"];
 
 const unixIso = (v: unknown) => new Date((v as number) * 1000).toISOString();
+const unixIsoOrNull = (v: unknown) => (typeof v === "number" ? unixIso(v) : null);
 
 function destinationVariables(d: O, o: RoutingOptions) {
   return {
@@ -173,6 +197,9 @@ export function planFor(e: RoutedEvent, o: RoutingOptions): { plan: Plan } | { s
         str(x, "account"),
       );
     case "evt.payments.payment_intent.succeeded":
+      // step 3.1: an invoice payment is confirmed by `invoice.paid` (billing), not a second receipt
+      if (x.source === "invoice" || typeof x.invoice === "string")
+        return { skip: "invoice payment (invoice.paid mails it)" };
       if (lm === false && !o.testModeReceipts) return { skip: "test-mode receipts are off" };
       return plan(
         "payment.receipt",
@@ -389,6 +416,46 @@ export function planFor(e: RoutedEvent, o: RoutingOptions): { plan: Plan } | { s
         { userEmails: { actor_email: actor } },
       );
     }
+    // stage 3 — billing: the customer is resolved (and the status re-checked) from billing's context
+    case "evt.billing.invoice.sent":
+    case "evt.billing.invoice.reminder":
+    case "evt.billing.invoice.paid":
+    case "evt.billing.invoice.voided": {
+      if (lm === false && !o.testModeReceipts) return { skip: "test-mode customer mails are off" };
+      const template = INVOICE_TEMPLATES[e.subject as keyof typeof INVOICE_TEMPLATES];
+      const reminder = e.subject === "evt.billing.invoice.reminder";
+      const invoiceId = str(x, reminder ? "invoice" : "id");
+      const transitions = (x.status_transitions as O | undefined) ?? {};
+      const variables: O = reminder
+        ? {
+            // fallback when billing's context carries no reminder block
+            reminder: {
+              number: x.number as number,
+              offset_days: x.offset_days as number,
+              last: x.last === true,
+            },
+          }
+        : e.subject === "evt.billing.invoice.paid"
+          ? { paid_at: unixIsoOrNull(transitions.paid_at) }
+          : e.subject === "evt.billing.invoice.voided"
+            ? { voided_at: unixIsoOrNull(transitions.voided_at) }
+            : {};
+      return plan(
+        template,
+        { kind: "invoice_customer", invoiceId, reminder: reminder ? (x.number as number) : null },
+        variables,
+        null,
+      );
+    }
+    case "evt.billing.subscription.renewal_upcoming":
+      if (x.cancel_at_period_end === true) return { skip: "the subscription ends at the period end" };
+      if (lm === false && !o.testModeReceipts) return { skip: "test-mode customer mails are off" };
+      return plan(
+        "subscription.renewal_upcoming",
+        { kind: "subscription_customer", subscriptionId: str(x, "id") },
+        {},
+        null,
+      );
     default:
       return { skip: `notify does not handle ${e.subject}` };
   }

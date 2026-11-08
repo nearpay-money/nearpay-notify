@@ -25,11 +25,18 @@ export interface SendDeps {
 
 export type SendResult = MessageStatus | "skipped" | "retry";
 
-/** Templates whose variables are credentials: single-use links (wiped once sent). */
+/**
+ * Templates whose variables hold a bearer link, wiped once sent: single-use credentials (magic,
+ * invitation, enrolment links) and, since stage 3, the hosted invoice link, whose fragment is the
+ * long-lived invoice secret (billing serves it again through its context whenever a mail needs it).
+ */
 export const CREDENTIAL_TEMPLATES: ReadonlySet<string> = new Set([
   "auth.magic_link",
   "team.invitation",
   "ops.enrolment",
+  "invoice.issued",
+  "invoice.reminder",
+  "invoice.paid",
 ]);
 
 async function finish(
@@ -102,7 +109,7 @@ export async function sendQueued(d: SendDeps, messageId: string, attempt: number
       last_error: null,
       attempts: attempt,
     });
-    // a sent magic, invitation or enrolment link is a live credential until it expires: do not keep it, even encrypted
+    // a sent magic, invitation, enrolment or hosted invoice link is a live credential: do not keep it, even encrypted
     if (CREDENTIAL_TEMPLATES.has(m.template))
       await d.n.db
         .updateTable("messages")

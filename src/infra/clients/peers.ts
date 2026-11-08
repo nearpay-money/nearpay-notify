@@ -1,18 +1,28 @@
 /**
  * Owner-service clients for recipient resolution (lld/notify.md §4): identity
  * `notification-recipients`, payments `receipt-context` (payments) and refund `receipt-context`
- * (stage 2), all with notify's service token.
+ * (stage 2), billing invoice and subscription `notification-context` (stage 3), all with notify's
+ * service token. The invoice context carries the hosted invoice link with the invoice secret: it is
+ * returned to the caller only, never logged.
  */
 
 import type { RouteResponse } from "@nearpay/spec";
 import { serviceTokenClient } from "@nearpay-internal/auth";
 import { HttpError, httpClient } from "@nearpay-internal/http";
-import { getNotificationRecipients, getReceiptContext, getRefundReceiptContext } from "@nearpay-internal/spec";
+import {
+  getInvoiceNotificationContext,
+  getNotificationRecipients,
+  getReceiptContext,
+  getRefundReceiptContext,
+  getSubscriptionNotificationContext,
+} from "@nearpay-internal/spec";
 import type { RecipientKind } from "../../domain/message/routing.js";
 
 export type Recipients = RouteResponse<typeof getNotificationRecipients>["recipients"];
 export type ReceiptContext = RouteResponse<typeof getReceiptContext>;
 export type RefundReceiptContext = RouteResponse<typeof getRefundReceiptContext>;
+export type InvoiceContext = RouteResponse<typeof getInvoiceNotificationContext>;
+export type SubscriptionContext = RouteResponse<typeof getSubscriptionNotificationContext>;
 
 export interface Peers {
   /** null when identity does not know the account. */
@@ -26,6 +36,10 @@ export interface Peers {
   receiptContext(paymentIntentId: string): Promise<ReceiptContext | null>;
   /** null when payments does not know the refund. */
   refundReceiptContext(refundId: string): Promise<RefundReceiptContext | null>;
+  /** Stage 3: null when billing does not know the invoice. `reminder` = the reminder event's number. */
+  invoiceContext(invoiceId: string, reminder: number | null): Promise<InvoiceContext | null>;
+  /** Stage 3: null when billing does not know the subscription. */
+  subscriptionContext(subscriptionId: string): Promise<SubscriptionContext | null>;
 }
 
 const missing = (e: unknown) => e instanceof HttpError && e.status === 404;
@@ -33,6 +47,7 @@ const missing = (e: unknown) => e instanceof HttpError && e.status === 404;
 export function httpPeers(o: {
   identityUrl: string;
   paymentsUrl: string;
+  billingUrl: string;
   serviceToken: () => Promise<string>;
   fetch?: typeof fetch;
   timeoutMs?: number;
@@ -44,7 +59,27 @@ export function httpPeers(o: {
   };
   const identity = httpClient({ target: "identity", baseUrl: o.identityUrl, ...common });
   const payments = httpClient({ target: "payments", baseUrl: o.paymentsUrl, ...common });
+  const billing = httpClient({ target: "billing", baseUrl: o.billingUrl, ...common });
+  const orNull = async <T>(f: () => Promise<T>): Promise<T | null> => {
+    try {
+      return await f();
+    } catch (e) {
+      if (missing(e)) return null;
+      throw e;
+    }
+  };
   return {
+    invoiceContext: (invoiceId, reminder) =>
+      orNull(() =>
+        billing.call(getInvoiceNotificationContext, {
+          params: { id: invoiceId as `in_${string}` },
+          query: reminder === null ? {} : { reminder },
+        }),
+      ),
+    subscriptionContext: (subscriptionId) =>
+      orNull(() =>
+        billing.call(getSubscriptionNotificationContext, { params: { id: subscriptionId as `sub_${string}` } }),
+      ),
     async recipients(accountId, kind) {
       try {
         return (await identity.call(getNotificationRecipients, { params: { id: accountId }, query: { kind } }))
