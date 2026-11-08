@@ -1,0 +1,15 @@
+Subject: Invoice ACMESH-T-00007 from Acme Test Shop was voided [test]
+
+Invoice voided
+
+Test mode — no real funds moved.
+
+Acme Test Shop voided invoice ACMESH-T-00007. You do not need to pay it, and its payment link no longer works.
+
+Invoice number: ACMESH-T-00007
+Amount: 1250.00 USDC
+
+If you already sent a payment for this invoice, contact Acme Test Shop: they can refund it from their own wallet. NearPay never holds the funds.
+
+--
+NearPay · non-custodial payments on NEAR Intents · A transactional message, never marketing.

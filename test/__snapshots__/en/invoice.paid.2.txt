@@ -1,0 +1,19 @@
+Subject: Payment received: invoice ACMESH-T-00007 from Acme Test Shop [test]
+
+Invoice ACMESH-T-00007 paid
+
+Test mode — no real funds moved.
+
+Thank you. Your payment of 1250.00 USDC to Acme Test Shop for invoice ACMESH-T-00007 is confirmed on-chain.
+
+Amount paid: 1250.00 USDC
+Invoice number: ACMESH-T-00007
+
+Design workshop (day) × 2: 1000.00 USDC
+Travel <flat> & expenses: 250.00 USDC
+Total: 1250.00 USDC
+
+NearPay processes payments for Acme Test Shop; payments settle directly to the merchant and NearPay never holds the funds. Contact Acme Test Shop with questions about this invoice.
+
+--
+NearPay · non-custodial payments on NEAR Intents · A transactional message, never marketing.

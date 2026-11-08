@@ -136,6 +136,7 @@ export async function createWorker(
     httpPeers({
       identityUrl: config.identityUrl,
       paymentsUrl: config.paymentsUrl,
+      billingUrl: config.billingUrl,
       serviceToken: notifyServiceToken(config.identityUrl, config.serviceClientSecret),
     });
   const domain = /@([^>]+)>$/.exec(config.from)?.[1] ?? "nearpay.money";

@@ -1,6 +1,6 @@
 /**
  * Integration harness: Postgres (migrator/app roles like nearpay-deploy), NATS JetStream, a real
- * Mailpit SMTP sink, and spec-generated mocks of identity and payments (recipient resolution). The
+ * Mailpit SMTP sink, and spec-generated mocks of identity, payments and billing (recipient resolution). The
  * `api` and `worker` are built by the same factories `main.ts` uses.
  */
 import { randomBytes } from "node:crypto";
@@ -93,6 +93,7 @@ export interface Stack {
   readonly worker: { service: Service; notify: Notify; metricsPort: number } | null;
   readonly identity: MockPeer;
   readonly payments: MockPeer;
+  readonly billing: MockPeer;
   readonly mailpit: Mailpit;
   readonly bus: Bus | null;
   readonly kek: string;
@@ -125,9 +126,10 @@ export async function startStack(o: StackOptions = {}): Promise<Stack> {
   await migrate(migrator.db, MIGRATIONS_DIR);
   await migrator.close();
 
-  const [identity, payments] = await Promise.all([
+  const [identity, payments, billing] = await Promise.all([
     mockPeer({ service: "identity", routes: INTERNAL_ROUTES }),
     mockPeer({ service: "payments", routes: INTERNAL_ROUTES }),
+    mockPeer({ service: "billing", routes: INTERNAL_ROUTES }),
   ]);
   const kek = randomBytes(32).toString("base64");
   const admin = createDb<DB>({ url: appUrl, applicationName: "notify-test" });
@@ -164,6 +166,7 @@ export async function startStack(o: StackOptions = {}): Promise<Stack> {
       consoleOrigin: "https://ops.nearpay.localhost",
       identityUrl: identity.url,
       paymentsUrl: payments.url,
+      billingUrl: billing.url,
       serviceClientSecret: "unused-in-tests",
       sendTimeoutMs: 5_000,
       messageRetentionDays: 90,
@@ -175,6 +178,7 @@ export async function startStack(o: StackOptions = {}): Promise<Stack> {
       peers: httpPeers({
         identityUrl: identity.url,
         paymentsUrl: payments.url,
+        billingUrl: billing.url,
         serviceToken: testServiceToken("notify"),
       }),
       ...(o.provider ? { provider: o.provider } : {}),
@@ -192,6 +196,7 @@ export async function startStack(o: StackOptions = {}): Promise<Stack> {
     worker,
     identity,
     payments,
+    billing,
     mailpit: mp.mailpit,
     bus,
     kek,
@@ -216,7 +221,7 @@ export async function startStack(o: StackOptions = {}): Promise<Stack> {
       await workerDb?.close();
       await apiDb.close();
       await admin.close();
-      await Promise.all([identity.stop(), payments.stop()]);
+      await Promise.all([identity.stop(), payments.stop(), billing.stop()]);
       await Promise.all([pg.stop(), nats?.stop(), mp.container.stop()]);
     },
   };

@@ -1,0 +1,23 @@
+Subject: Overdue: invoice ACMESH-L-00042 from Acme Test Shop
+
+Invoice overdue
+
+Invoice ACMESH-L-00042 from Acme Test Shop was due 7 days ago, on 15 Nov 2026, and is still unpaid.
+
+Amount due: 108.90 USD
+Due: 15 Nov 2026
+Invoice number: ACMESH-L-00042
+Billing period: 1 Nov 2026 – 30 Nov 2026
+
+This is the last reminder for this invoice. If it stays unpaid, your subscription with Acme Test Shop may be canceled or paused.
+
+Pay invoice: https://pay.nearpay.localhost/i/in_01m6pm3ppnengb0aaefsa11e3j#isec_sample_8Hq2xVb4
+
+Already paid? You can ignore this reminder: a payment can take a few minutes to confirm on-chain.
+
+This link is personal: anyone who has it can see this invoice, so do not forward it. The invoice page shows the merchant's name; check it before you pay.
+
+NearPay processes payments for Acme Test Shop; payments settle directly to the merchant and NearPay never holds the funds. Contact Acme Test Shop with questions about this invoice.
+
+--
+NearPay · non-custodial payments on NEAR Intents · A transactional message, never marketing.

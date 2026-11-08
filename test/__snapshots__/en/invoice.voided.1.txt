@@ -1,0 +1,16 @@
+Subject: Invoice ACMESH-L-00042 from Acme Test Shop was voided
+
+Invoice voided
+
+Hello Dana Whitfield,
+
+Acme Test Shop voided invoice ACMESH-L-00042. You do not need to pay it, and its payment link no longer works.
+
+Invoice number: ACMESH-L-00042
+Amount: 108.90 USD
+Voided: 2026-11-09 08:00 UTC
+
+If you already sent a payment for this invoice, contact Acme Test Shop: they can refund it from their own wallet. NearPay never holds the funds.
+
+--
+NearPay · non-custodial payments on NEAR Intents · A transactional message, never marketing.

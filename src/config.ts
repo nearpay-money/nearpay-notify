@@ -33,6 +33,8 @@ export const workerShape = {
   consoleOrigin: url(["https:", "http:"]).default("https://ops.nearpay.localhost"),
   identityUrl: url(["http:", "https:"]),
   paymentsUrl: url(["http:", "https:"]),
+  /** Billing internal API (stage 3: invoice and subscription notification contexts). */
+  billingUrl: url(["http:", "https:"]),
   serviceClientSecret: secret(),
   /** Provider call timeout (LLD §6: 5 s). */
   sendTimeoutMs: z.coerce.number().int().min(500).max(60_000).default(5_000),

@@ -6,6 +6,52 @@ import type { TemplateName, Variables } from "./catalogue.js";
 
 const DASHBOARD = "https://dashboard.nearpay.localhost";
 const CONSOLE = "https://ops.nearpay.localhost";
+const PAY = "https://pay.nearpay.localhost";
+/** Fiat invoice of a subscription period (live). The hosted link's fragment is a sample invoice secret. */
+const invoice = {
+  invoice_id: "in_01m6pm3ppnengb0aaefsa11e3j",
+  number: "ACMESH-L-00042",
+  merchant_name: "Acme Test Shop",
+  customer_name: "Dana Whitfield",
+  livemode: true,
+  currency: "usd",
+  asset: null,
+  total: 10890,
+  amount_due: 10890,
+  amount_remaining: 10890,
+  due_date: "2026-11-15T00:00:00.000Z",
+  period_start: "2026-11-01T00:00:00.000Z",
+  period_end: "2026-12-01T00:00:00.000Z",
+  subscription_id: "sub_01m6pm3ppnengb0aaefsa11e3j",
+  lines: [
+    { description: "Pro plan (monthly)", quantity: 1, amount: 7900 },
+    { description: "Extra seat", quantity: 2, amount: 2000 },
+  ],
+  hosted_invoice_url: `${PAY}/i/in_01m6pm3ppnengb0aaefsa11e3j#isec_sample_8Hq2xVb4`,
+};
+/** Asset-priced one-off invoice (test mode, no customer name, no period). */
+const assetInvoice = {
+  ...invoice,
+  invoice_id: "in_01m6pm3ppnengb0aaefsa11e3k",
+  number: "ACMESH-T-00007",
+  customer_name: null,
+  livemode: false,
+  currency: "asset",
+  asset: { symbol: "USDC", decimals: 6 },
+  total: "1250000000",
+  amount_due: "1250000000",
+  amount_remaining: "1250000000",
+  due_date: null,
+  period_start: null,
+  period_end: null,
+  subscription_id: null,
+  lines: [
+    { description: "Design workshop (day)", quantity: 2, amount: "1000000000" },
+    { description: "Travel <flat> & expenses", quantity: 1, amount: "250000000" },
+  ],
+  hosted_invoice_url: `${PAY}/i/in_01m6pm3ppnengb0aaefsa11e3k#isec_sample_Zp7nQe1c`,
+};
+
 const destination = {
   label: "Treasury (Base)",
   chain: "eip155:8453",
@@ -254,6 +300,70 @@ export const SAMPLES: { readonly [T in TemplateName]: readonly Variables<T>[] } 
       actor_email: null,
       livemode: false,
       dashboard_url: DASHBOARD,
+    },
+  ],
+  // stage 3 — billing
+  "invoice.issued": [invoice, assetInvoice],
+  "invoice.reminder": [
+    { ...invoice, reminder: { number: 1, offset_days: -3, last: false } },
+    { ...assetInvoice, due_date: "2026-11-20T00:00:00.000Z", reminder: { number: 2, offset_days: 0, last: false } },
+    { ...invoice, customer_name: null, reminder: { number: 5, offset_days: 7, last: true } },
+    { ...assetInvoice, due_date: "2026-11-01T00:00:00.000Z", reminder: { number: 3, offset_days: 1, last: true } },
+  ],
+  "invoice.paid": [
+    {
+      ...invoice,
+      amount_remaining: 0,
+      paid_at: "2026-11-12T14:31:00.000Z",
+      payment_id: "pi_01m6pm3ppnengb0aaefsa11e3j",
+      settled_display: "108.90 USDC (NEAR)",
+      evidence_links: ["https://nearblocks.io/txns/8Ld3Ap4zR2yK7uR3nVbXq1sH4cW9tE6mP2fJ5gD1aB7c"],
+    },
+    {
+      ...assetInvoice,
+      amount_remaining: "0",
+      paid_at: null,
+      payment_id: null,
+      settled_display: null,
+      evidence_links: [],
+      hosted_invoice_url: null,
+    },
+  ],
+  "invoice.voided": [
+    { ...invoice, voided_at: "2026-11-09T08:00:00.000Z" },
+    { ...assetInvoice, voided_at: null },
+  ],
+  "subscription.renewal_upcoming": [
+    {
+      subscription_id: "sub_01m6pm3ppnengb0aaefsa11e3j",
+      merchant_name: "Acme Test Shop",
+      customer_name: "Dana Whitfield",
+      livemode: true,
+      trialing: false,
+      renews_at: "2026-12-01T00:00:00.000Z",
+      interval: "month",
+      interval_count: 1,
+      currency: "usd",
+      asset: null,
+      next_amount: 10890,
+      items: [
+        { description: "Pro plan", quantity: 1 },
+        { description: "Extra seat", quantity: 3 },
+      ],
+    },
+    {
+      subscription_id: "sub_01m6pm3ppnengb0aaefsa11e3k",
+      merchant_name: "Acme Test Shop",
+      customer_name: null,
+      livemode: false,
+      trialing: true,
+      renews_at: "2026-11-22T00:00:00.000Z",
+      interval: "week",
+      interval_count: 2,
+      currency: "asset",
+      asset: { symbol: "USDC", decimals: 6 },
+      next_amount: "40000000",
+      items: [{ description: "Starter plan", quantity: 1 }],
     },
   ],
 };

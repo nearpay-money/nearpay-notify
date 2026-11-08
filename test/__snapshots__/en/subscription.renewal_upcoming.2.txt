@@ -1,0 +1,17 @@
+Subject: Your Acme Test Shop trial ends on 22 Nov 2026 [test]
+
+Your trial ends soon
+
+Test mode — no real funds moved.
+
+Your free trial with Acme Test Shop ends on 22 Nov 2026. Your subscription then starts and Acme Test Shop will email you an invoice for 40.00 USDC, which you pay on the secure invoice page.
+
+Next invoice: 40.00 USDC
+Trial ends: 22 Nov 2026
+Billing: Every 2 weeks
+Starter plan: Quantity 1
+
+Nothing is charged automatically: you pay each invoice yourself. To change or cancel your subscription, contact $v.merchant_namebefore $day.
+
+--
+NearPay · non-custodial payments on NEAR Intents · A transactional message, never marketing.

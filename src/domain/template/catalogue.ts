@@ -31,6 +31,50 @@ const pricingCurrency = z.string().regex(/^([a-z]{3}|asset)$/);
 const text = (max = 500) => z.string().min(1).max(max);
 const iso = z.iso.datetime({ offset: true });
 
+/** Display data of the pricing asset (`currency: asset`); null for fiat. */
+const assetDisplay = z.object({ symbol: text(32), decimals: z.int().min(0).max(255) }).nullable();
+
+/**
+ * Priced amounts of a billing mail: fiat in integer minor units, assets in base-unit strings with
+ * the asset's display data (INV-5). The pairing is checked so a mail never formats one as the other.
+ */
+function pricedAmounts<S extends z.ZodRawShape>(shape: S, amountKeys: readonly string[]) {
+  return z.object({ currency: pricingCurrency, asset: assetDisplay, ...shape }).superRefine((v, ctx) => {
+    const rec = v as Record<string, unknown>;
+    const isAsset = rec.currency === "asset";
+    if (isAsset && rec.asset === null)
+      ctx.addIssue({ code: "custom", path: ["asset"], message: "asset pricing needs the asset's display data" });
+    const amounts: [string, unknown][] = amountKeys.map((k) => [k, rec[k]]);
+    for (const [i, l] of ((rec.lines as { amount: unknown }[] | undefined) ?? []).entries())
+      amounts.push([`lines.${i}.amount`, l.amount]);
+    for (const [k, a] of amounts)
+      if (isAsset ? typeof a !== "string" : typeof a !== "number")
+        ctx.addIssue({
+          code: "custom",
+          path: k.split("."),
+          message: isAsset ? "asset amounts are base-unit strings" : "fiat amounts are integer minor units",
+        });
+  });
+}
+
+const invoiceLine = z.object({ description: text(500), quantity: z.int().min(1), amount: pricingAmount });
+const invoiceFields = {
+  invoice_id: text(64),
+  number: text(64),
+  merchant_name: text(200),
+  customer_name: z.string().max(200).nullable(),
+  livemode: z.boolean(),
+  total: pricingAmount,
+  amount_due: pricingAmount,
+  amount_remaining: pricingAmount,
+  due_date: iso.nullable(),
+  period_start: iso.nullable(),
+  period_end: iso.nullable(),
+  subscription_id: z.string().max(64).nullable(),
+  lines: z.array(invoiceLine).max(20),
+};
+const INVOICE_AMOUNTS = ["total", "amount_due", "amount_remaining"] as const;
+
 const destination = z.object({
   label: z.string().max(100).nullable(),
   chain: text(64),
@@ -176,6 +220,52 @@ const SCHEMAS = {
     livemode: z.boolean(),
     dashboard_url: url,
   }),
+  // stage 3 — billing (lld/notify.md §4, spec 0.3.0 `BILLING_EMAIL_TEMPLATES`); recipient: the customer
+  "invoice.issued": pricedAmounts(
+    {
+      ...invoiceFields,
+      /** Hosted invoice page with the invoice secret in the fragment (a bearer link: wiped once sent). */
+      hosted_invoice_url: url,
+    },
+    INVOICE_AMOUNTS,
+  ),
+  "invoice.reminder": pricedAmounts(
+    {
+      ...invoiceFields,
+      hosted_invoice_url: url,
+      reminder: z.object({ number: z.int().min(1).max(10), offset_days: z.int().min(-30).max(60), last: z.boolean() }),
+    },
+    INVOICE_AMOUNTS,
+  ),
+  "invoice.paid": pricedAmounts(
+    {
+      ...invoiceFields,
+      hosted_invoice_url: url.nullable(),
+      paid_at: iso.nullable(),
+      payment_id: z.string().max(64).nullable(),
+      /** What settled to the merchant (payments receipt context); null when payments has no receipt. */
+      settled_display: z.string().max(200).nullable(),
+      evidence_links: z.array(url).max(10),
+    },
+    INVOICE_AMOUNTS,
+  ),
+  /** No link: a void invoice cannot be paid (billing returns no hosted link for it). */
+  "invoice.voided": pricedAmounts({ ...invoiceFields, voided_at: iso.nullable() }, INVOICE_AMOUNTS),
+  "subscription.renewal_upcoming": pricedAmounts(
+    {
+      subscription_id: text(64),
+      merchant_name: text(200),
+      customer_name: z.string().max(200).nullable(),
+      livemode: z.boolean(),
+      trialing: z.boolean(),
+      renews_at: iso,
+      interval: z.enum(["day", "week", "month", "year"]),
+      interval_count: z.int().min(1).max(12),
+      next_amount: pricingAmount,
+      items: z.array(z.object({ description: text(500), quantity: z.int().min(1) })).max(20),
+    },
+    ["next_amount"],
+  ),
 } as const;
 
 export type TemplateName = keyof typeof SCHEMAS;
@@ -235,6 +325,36 @@ export function formatPrice(amount: number | string, currency: string, settledDi
   return `${formatUnits(BigInt(amount), digits, digits)} ${currency.toUpperCase()}`;
 }
 
+/**
+ * Billing amount (INV-5: integers only): fiat minor units with the currency's exponent, asset base
+ * units with the asset's decimals and symbol (at least 2 fraction digits when the asset has them).
+ */
+export function formatAmount(
+  amount: number | string,
+  currency: string,
+  asset: { readonly symbol: string; readonly decimals: number } | null,
+): string {
+  if (currency === "asset") {
+    if (!asset) throw new RangeError("asset amount without the asset's display data");
+    return `${formatUnits(BigInt(amount), asset.decimals, Math.min(2, asset.decimals))} ${asset.symbol}`;
+  }
+  const digits = minorUnits(currency);
+  return `${formatUnits(BigInt(amount), digits, digits)} ${currency.toUpperCase()}`;
+}
+
+/** `month`, 1 → `Monthly`; `week`, 2 → `Every 2 weeks`. */
+export function formatInterval(interval: "day" | "week" | "month" | "year", count: number): string {
+  if (count === 1) return { day: "Daily", week: "Weekly", month: "Monthly", year: "Yearly" }[interval];
+  return `Every ${count} ${interval}s`;
+}
+
+/** UTC calendar day, e.g. `14 Nov 2026`. */
+export function formatDay(s: string): string {
+  const d = new Date(s);
+  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  return `${d.getUTCDate()} ${months[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
+}
+
 /** `15` → `15 minutes`, `1440` → `24 hours`, `10080` → `7 days`. */
 export function formatDuration(minutes: number): string {
   const unit = (n: number, one: string) => `${n} ${one}${n === 1 ? "" : "s"}`;
@@ -267,6 +387,88 @@ const SUBJECT_TYPES: Record<string, string> = {
   agent_payment: "agent payment",
   settlement_destination: "settlement destination",
 };
+
+type InvoiceVars = Variables<"invoice.issued"> | Variables<"invoice.reminder"> | Variables<"invoice.paid">;
+
+/**
+ * Invoice lines and the total, as a facts table (`Description × 3` → amount). The context lists at
+ * most 20 lines and no subtotal: with fewer than 20 lines every line is present, so `total − Σ lines`
+ * is the exclusive tax (inclusive tax is already inside the line amounts) and is shown as "Tax";
+ * with 20 lines the rest is left to the invoice page.
+ */
+function invoiceLines(v: InvoiceVars | Variables<"invoice.voided">): Block {
+  const money = (a: number | string | bigint) => formatAmount(a.toString(), v.currency, v.asset);
+  const sum = v.lines.reduce((n, l) => n + BigInt(l.amount), 0n);
+  const rest = BigInt(v.total) - sum;
+  const complete = v.lines.length < 20;
+  return {
+    kind: "facts",
+    rows: [
+      ...v.lines.map(
+        (l) => [l.quantity > 1 ? `${l.description} × ${l.quantity}` : l.description, money(l.amount)] as const,
+      ),
+      ...(rest > 0n
+        ? [complete ? (["Tax", money(rest)] as const) : (["More lines and tax", "On the invoice page"] as const)]
+        : []),
+      ["Total", money(v.total)],
+    ],
+  };
+}
+
+const billingPeriod = (v: { period_start: string | null; period_end: string | null }) =>
+  v.period_start && v.period_end
+    ? ([
+        [
+          "Billing period",
+          `${formatDay(v.period_start)} – ${formatDay(new Date(Date.parse(v.period_end) - 1).toISOString())}`,
+        ],
+      ] as const)
+    : [];
+
+const testBanner = (livemode: boolean): Block[] =>
+  livemode
+    ? []
+    : [
+        {
+          kind: "callout",
+          tone: "warning",
+          text: "Test mode — no real funds move and this invoice cannot be paid with real money.",
+        },
+      ];
+
+const testTag = (livemode: boolean) => (livemode ? "" : " [test]");
+
+const HOSTED_LINK_NOTE =
+  "This link is personal: anyone who has it can see this invoice, so do not forward it. The invoice page shows the merchant's name; check it before you pay.";
+
+const merchantNote = (merchant: string) =>
+  `NearPay processes payments for ${merchant}; payments settle directly to the merchant and NearPay never holds the funds. Contact ${merchant} with questions about this invoice.`;
+
+const greeting = (name: string | null): Block[] => (name ? [{ kind: "p", text: `Hello ${name},` }] : []);
+
+/** When a reminder falls relative to the due date, from its offset (pure: no clock). */
+function reminderCopy(v: Variables<"invoice.reminder">) {
+  const due = v.due_date ? formatDay(v.due_date) : null;
+  const d = v.reminder.offset_days;
+  const days = (n: number) => `${n} day${n === 1 ? "" : "s"}`;
+  if (d < 0)
+    return {
+      subject: `Reminder: invoice ${v.number} from ${v.merchant_name} is due in ${days(-d)}`,
+      heading: "Payment reminder",
+      text: `This is a reminder that invoice ${v.number} from ${v.merchant_name} is due in ${days(-d)}${due ? `, on ${due}` : ""}.`,
+    };
+  if (d === 0)
+    return {
+      subject: `Invoice ${v.number} from ${v.merchant_name} is due today`,
+      heading: "Invoice due today",
+      text: `Invoice ${v.number} from ${v.merchant_name} is due today.`,
+    };
+  return {
+    subject: `Overdue: invoice ${v.number} from ${v.merchant_name}`,
+    heading: "Invoice overdue",
+    text: `Invoice ${v.number} from ${v.merchant_name} was due ${days(d)} ago${due ? `, on ${due}` : ""}, and is still unpaid.`,
+  };
+}
 
 const en: { [T in TemplateName]: (v: Variables<T>) => Content } = {
   "auth.magic_link": (v) => {
@@ -773,6 +975,171 @@ const en: { [T in TemplateName]: (v: Variables<T>) => Content } = {
           text: "If you did not expect this, sign in now, rotate the secret again and review who has access.",
         },
         { kind: "button", label: "Open webhooks", href: v.dashboard_url },
+      ],
+    };
+  },
+  "invoice.issued": (v) => {
+    const due = formatAmount(v.amount_remaining, v.currency, v.asset);
+    return {
+      subject: `Invoice ${v.number} from ${v.merchant_name}${testTag(v.livemode)}`,
+      preheader: v.due_date ? `${due} due by ${formatDay(v.due_date)}.` : `${due} due.`,
+      heading: `Invoice from ${v.merchant_name}`,
+      blocks: [
+        ...testBanner(v.livemode),
+        ...greeting(v.customer_name),
+        {
+          kind: "p",
+          text: `${v.merchant_name} sent you invoice ${v.number}. You can review it and pay with crypto on the secure invoice page.`,
+        },
+        {
+          kind: "facts",
+          rows: [
+            ["Amount due", due],
+            ...(v.due_date ? ([["Due", formatDay(v.due_date)]] as const) : []),
+            ["Invoice number", v.number],
+            ...billingPeriod(v),
+          ],
+        },
+        invoiceLines(v),
+        { kind: "button", label: "View and pay invoice", href: v.hosted_invoice_url },
+        { kind: "note", text: HOSTED_LINK_NOTE },
+        { kind: "note", text: merchantNote(v.merchant_name) },
+      ],
+    };
+  },
+  "invoice.reminder": (v) => {
+    const copy = reminderCopy(v);
+    const remaining = formatAmount(v.amount_remaining, v.currency, v.asset);
+    return {
+      subject: `${copy.subject}${testTag(v.livemode)}`,
+      preheader: `${remaining} still to pay.`,
+      heading: copy.heading,
+      blocks: [
+        ...testBanner(v.livemode),
+        ...greeting(v.customer_name),
+        { kind: "p", text: copy.text },
+        {
+          kind: "facts",
+          rows: [
+            ["Amount due", remaining],
+            ...(v.due_date ? ([["Due", formatDay(v.due_date)]] as const) : []),
+            ["Invoice number", v.number],
+            ...billingPeriod(v),
+          ],
+        },
+        ...(v.reminder.last
+          ? [
+              {
+                kind: "callout",
+                tone: "info",
+                text: v.subscription_id
+                  ? `This is the last reminder for this invoice. If it stays unpaid, your subscription with ${v.merchant_name} may be canceled or paused.`
+                  : "This is the last reminder for this invoice.",
+              } as const,
+            ]
+          : []),
+        { kind: "button", label: "Pay invoice", href: v.hosted_invoice_url },
+        {
+          kind: "note",
+          text: "Already paid? You can ignore this reminder: a payment can take a few minutes to confirm on-chain.",
+        },
+        { kind: "note", text: HOSTED_LINK_NOTE },
+        { kind: "note", text: merchantNote(v.merchant_name) },
+      ],
+    };
+  },
+  "invoice.paid": (v) => {
+    const paid = formatAmount(v.amount_due, v.currency, v.asset);
+    return {
+      subject: `Payment received: invoice ${v.number} from ${v.merchant_name}${testTag(v.livemode)}`,
+      preheader: `${paid} paid to ${v.merchant_name}.`,
+      heading: `Invoice ${v.number} paid`,
+      blocks: [
+        ...(v.livemode ? [] : [{ kind: "callout", tone: "warning", text: TEST_MODE } as const]),
+        ...greeting(v.customer_name),
+        {
+          kind: "p",
+          text: `Thank you. Your payment of ${paid} to ${v.merchant_name} for invoice ${v.number} is confirmed on-chain.`,
+        },
+        {
+          kind: "facts",
+          rows: [
+            ["Amount paid", paid],
+            ...(v.settled_display ? ([["Settled", v.settled_display]] as const) : []),
+            ["Invoice number", v.number],
+            ...(v.paid_at ? ([["Paid", formatDate(v.paid_at)]] as const) : []),
+            ...billingPeriod(v),
+            ...(v.payment_id ? ([["Payment", v.payment_id]] as const) : []),
+          ],
+        },
+        invoiceLines(v),
+        ...(v.evidence_links.length
+          ? [{ kind: "links", label: "On-chain proof of settlement:", hrefs: v.evidence_links } as const]
+          : []),
+        ...(v.hosted_invoice_url
+          ? [{ kind: "button", label: "View invoice", href: v.hosted_invoice_url } as const]
+          : []),
+        { kind: "note", text: merchantNote(v.merchant_name) },
+      ],
+    };
+  },
+  "invoice.voided": (v) => ({
+    subject: `Invoice ${v.number} from ${v.merchant_name} was voided${testTag(v.livemode)}`,
+    preheader: "You do not need to pay it.",
+    heading: "Invoice voided",
+    blocks: [
+      ...(v.livemode ? [] : [{ kind: "callout", tone: "warning", text: TEST_MODE } as const]),
+      ...greeting(v.customer_name),
+      {
+        kind: "p",
+        text: `${v.merchant_name} voided invoice ${v.number}. You do not need to pay it, and its payment link no longer works.`,
+      },
+      {
+        kind: "facts",
+        rows: [
+          ["Invoice number", v.number],
+          ["Amount", formatAmount(v.total, v.currency, v.asset)],
+          ...(v.voided_at ? ([["Voided", formatDate(v.voided_at)]] as const) : []),
+        ],
+      },
+      {
+        kind: "note",
+        text: `If you already sent a payment for this invoice, contact ${v.merchant_name}: they can refund it from their own wallet. NearPay never holds the funds.`,
+      },
+    ],
+  }),
+  "subscription.renewal_upcoming": (v) => {
+    const amount = formatAmount(v.next_amount, v.currency, v.asset);
+    const day = formatDay(v.renews_at);
+    const period = formatInterval(v.interval, v.interval_count);
+    return {
+      subject: v.trialing
+        ? `Your ${v.merchant_name} trial ends on ${day}${testTag(v.livemode)}`
+        : `Your ${v.merchant_name} subscription renews on ${day}${testTag(v.livemode)}`,
+      preheader: `${v.merchant_name} will send you an invoice for ${amount}.`,
+      heading: v.trialing ? "Your trial ends soon" : "Subscription renewal coming up",
+      blocks: [
+        ...(v.livemode ? [] : [{ kind: "callout", tone: "warning", text: TEST_MODE } as const]),
+        ...greeting(v.customer_name),
+        {
+          kind: "p",
+          text: v.trialing
+            ? `Your free trial with ${v.merchant_name} ends on ${day}. Your subscription then starts and ${v.merchant_name} will email you an invoice for ${amount}, which you pay on the secure invoice page.`
+            : `Your subscription with ${v.merchant_name} renews on ${day}. ${v.merchant_name} will then email you an invoice for ${amount}, which you pay on the secure invoice page.`,
+        },
+        {
+          kind: "facts",
+          rows: [
+            ["Next invoice", amount],
+            [v.trialing ? "Trial ends" : "Renews", day],
+            ["Billing", period],
+            ...v.items.map((i) => [i.description, `Quantity ${i.quantity}`] as const),
+          ],
+        },
+        {
+          kind: "note",
+          text: `Nothing is charged automatically: you pay each invoice yourself. To change or cancel your subscription, contact $v.merchant_namebefore $day.`,
+        },
       ],
     };
   },

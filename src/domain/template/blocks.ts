@@ -30,7 +30,10 @@ export function escapeHtml(s: string): string {
 
 export class LinkError extends Error {
   constructor(href: string) {
-    super(`refusing to render link ${JSON.stringify(href)}: only absolute http(s) URLs`);
+    // never echo the link: it may carry a credential (a hosted invoice secret, a magic-link token)
+    // and this message reaches logs and `messages.last_error`
+    const scheme = /^([a-z][a-z0-9+.-]{0,15}):/i.exec(href)?.[1];
+    super(`refusing to render a link${scheme ? ` with scheme ${scheme}:` : ""}: only absolute http(s) URLs`);
     this.name = "LinkError";
   }
 }
