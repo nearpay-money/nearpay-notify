@@ -119,7 +119,7 @@ const SCHEMAS = {
   "security.member_changed": z.object({
     change: z.enum(["added", "removed", "role_changed"]),
     member_id: text(64),
-    /** Resolved through identity's recipients when the member is an owner/admin; else null. */
+    /** Resolved through identity's recipients (`?user=` since spec 0.2.1: any role, recently removed); else null. */
     member_email: z.string().max(254).nullable(),
     role: z.enum(ROLES),
     previous_role: z.enum(ROLES).nullable(),
@@ -156,6 +156,25 @@ const SCHEMAS = {
     requested_at: iso,
     expires_at: iso,
     console_url: url,
+  }),
+  // spec 0.2.1 (lld/notify.md §"Spec 0.2.1 contract changes")
+  "security.recovery": z.object({
+    user_id: text(64),
+    /** The recovered user, named through identity's recipients; null when not listed. */
+    user_email: z.string().max(254).nullable(),
+    recovered_at: iso,
+    lock_until: iso,
+    dashboard_url: url,
+  }),
+  "webhooks.secret_rotated": z.object({
+    endpoint_id: text(64),
+    url: url,
+    /** Until when the previous secret still signs; null when it was dropped at once. Never a secret. */
+    previous_secret_expires_at: iso.nullable(),
+    actor_id: z.string().max(64).nullable(),
+    actor_email: z.string().max(254).nullable(),
+    livemode: z.boolean(),
+    dashboard_url: url,
   }),
 } as const;
 
@@ -694,6 +713,66 @@ const en: { [T in TemplateName]: (v: Variables<T>) => Content } = {
         },
         { kind: "button", label: "Open the console", href: v.console_url },
         { kind: "note", text: "Check the reason with the requester before you approve. Rejecting executes nothing." },
+      ],
+    };
+  },
+  "security.recovery": (v) => {
+    const who = v.user_email ?? `A team member (${v.user_id})`;
+    return {
+      subject: "Security alert: account access was recovered",
+      preheader: `Settlement destination and team changes are locked until ${formatDate(v.lock_until)}.`,
+      heading: "Account access recovered",
+      blocks: [
+        {
+          kind: "p",
+          text: `${who} regained access to NearPay by email recovery and registered a new passkey on ${formatDate(v.recovered_at)}.`,
+        },
+        {
+          kind: "p",
+          text: `As a precaution, settlement destinations cannot be added or approved, and owners and admins cannot be invited, changed or removed, until ${formatDate(v.lock_until)}.`,
+        },
+        {
+          kind: "facts",
+          rows: [
+            ["User", v.user_email ?? v.user_id],
+            ["Recovered", formatDate(v.recovered_at)],
+            ["Locked until", formatDate(v.lock_until)],
+          ],
+        },
+        {
+          kind: "p",
+          text: "If this was not expected, sign in now, review your team and settlement destinations, and contact NearPay support.",
+        },
+        { kind: "button", label: "Review your account", href: v.dashboard_url },
+      ],
+    };
+  },
+  "webhooks.secret_rotated": (v) => {
+    const actor = v.actor_email ?? v.actor_id;
+    return {
+      subject: `Webhook signing secret rotated${v.livemode ? "" : " [test]"}`,
+      preheader: v.previous_secret_expires_at
+        ? `The previous secret keeps signing until ${formatDate(v.previous_secret_expires_at)}.`
+        : "The previous secret no longer signs deliveries.",
+      heading: "Webhook signing secret rotated",
+      blocks: [
+        ...(v.livemode ? [] : [{ kind: "callout", tone: "warning", text: TEST_MODE } as const]),
+        {
+          kind: "p",
+          text: v.previous_secret_expires_at
+            ? `The signing secret of this endpoint was rotated. Until ${formatDate(v.previous_secret_expires_at)} each delivery carries signatures with both the new and the previous secret; after that only the new secret signs. Update your endpoint's secret before then.`
+            : "The signing secret of this endpoint was rotated and the previous secret was dropped at once: deliveries are signed with the new secret only.",
+        },
+        { kind: "code", label: "Endpoint", text: v.url },
+        {
+          kind: "facts",
+          rows: [["Endpoint id", v.endpoint_id], ...(actor ? ([["Rotated by", actor]] as const) : [])],
+        },
+        {
+          kind: "p",
+          text: "If you did not expect this, sign in now, rotate the secret again and review who has access.",
+        },
+        { kind: "button", label: "Open webhooks", href: v.dashboard_url },
       ],
     };
   },

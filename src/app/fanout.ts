@@ -7,7 +7,7 @@
 import type { Envelope } from "@nearpay-internal/bus";
 import { withTx } from "@nearpay-internal/db";
 import { toUuid } from "@nearpay-internal/ids";
-import { chooseRecipients, lookupEmails } from "../domain/message/audience.js";
+import { chooseRecipients, lookupEmails, type Recipient } from "../domain/message/audience.js";
 import { recipientHash } from "../domain/message/policy.js";
 import { type Plan, planFor, type RoutingOptions } from "../domain/message/routing.js";
 import type { Peers } from "../infra/clients/peers.js";
@@ -37,8 +37,19 @@ async function targets(d: FanoutDeps, plan: Plan): Promise<Target[] | string> {
     case "account": {
       const list = await d.peers.recipients(a.accountId, a.recipients);
       if (list === null) return `identity does not know ${a.accountId}`;
-      const variables = { ...plan.variables, ...lookupEmails(list, plan.userEmails) };
+      const variables = { ...plan.variables, ...(await emails(d, a.accountId, list, plan.userEmails)) };
       return chooseRecipients(list, a).map((r) => ({ key: r.user_id, to: r.email, variables }));
+    }
+    case "accounts": {
+      const lists: Recipient[] = [];
+      for (const accountId of a.accountIds) {
+        const list = await d.peers.recipients(accountId, a.recipients);
+        if (list) lists.push(...chooseRecipients(list, a));
+      }
+      const first = a.accountIds[0];
+      if (lists.length === 0 || first === undefined) return "identity lists nobody for these accounts";
+      const variables = { ...plan.variables, ...(await emails(d, first, lists, plan.userEmails)) };
+      return chooseRecipients(lists, {}).map((r) => ({ key: r.user_id, to: r.email, variables }));
     }
     case "customer": {
       const ctx = await d.peers.receiptContext(a.paymentIntentId);
@@ -91,6 +102,22 @@ async function targets(d: FanoutDeps, plan: Plan): Promise<Target[] | string> {
         variables: plan.variables,
       }));
   }
+}
+
+/**
+ * `userEmails` variables: from the recipient list when the user is on it, else identity `?user=`
+ * (spec 0.2.1: names members of any role, and recently removed ones), else null.
+ */
+async function emails(
+  d: FanoutDeps,
+  accountId: string,
+  list: readonly Recipient[],
+  userEmails: Plan["userEmails"],
+): Promise<Record<string, string | null>> {
+  const out = lookupEmails(list, userEmails);
+  for (const [k, id] of Object.entries(userEmails ?? {}))
+    if (out[k] === null && id !== null) out[k] = (await d.peers.recipient(accountId, id))?.email ?? null;
+  return out;
 }
 
 /** Runs the `event.notify` job for one envelope. */

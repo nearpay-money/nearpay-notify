@@ -17,6 +17,11 @@ export type RefundReceiptContext = RouteResponse<typeof getRefundReceiptContext>
 export interface Peers {
   /** null when identity does not know the account. */
   recipients(accountId: string, kind: RecipientKind): Promise<Recipients | null>;
+  /**
+   * Spec 0.2.1 `?user=`: that user if they are (or, within 7 days, were) a member, in any role; null
+   * when identity lists nobody or does not know the account.
+   */
+  recipient(accountId: string, userId: string): Promise<Recipients[number] | null>;
   /** null when payments does not know the payment intent. */
   receiptContext(paymentIntentId: string): Promise<ReceiptContext | null>;
   /** null when payments does not know the refund. */
@@ -44,6 +49,18 @@ export function httpPeers(o: {
       try {
         return (await identity.call(getNotificationRecipients, { params: { id: accountId }, query: { kind } }))
           .recipients;
+      } catch (e) {
+        if (missing(e)) return null;
+        throw e;
+      }
+    },
+    async recipient(accountId, userId) {
+      try {
+        const r = await identity.call(getNotificationRecipients, {
+          params: { id: accountId },
+          query: { kind: "security", user: userId as `usr_${string}` },
+        });
+        return r.recipients.find((x) => x.user_id === userId) ?? null;
       } catch (e) {
         if (missing(e)) return null;
         throw e;

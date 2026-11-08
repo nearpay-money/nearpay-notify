@@ -1,0 +1,18 @@
+Subject: Security alert: account access was recovered
+
+Account access recovered
+
+A team member (usr_01m6pm3ppnengb0aaefsa11e3k) regained access to NearPay by email recovery and registered a new passkey on 2026-11-08 09:00 UTC.
+
+As a precaution, settlement destinations cannot be added or approved, and owners and admins cannot be invited, changed or removed, until 2026-11-10 09:00 UTC.
+
+User: usr_01m6pm3ppnengb0aaefsa11e3k
+Recovered: 2026-11-08 09:00 UTC
+Locked until: 2026-11-10 09:00 UTC
+
+If this was not expected, sign in now, review your team and settlement destinations, and contact NearPay support.
+
+Review your account: https://dashboard.nearpay.localhost/
+
+--
+NearPay · non-custodial payments on NEAR Intents · A transactional message, never marketing.

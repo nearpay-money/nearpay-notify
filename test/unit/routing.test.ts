@@ -264,7 +264,7 @@ describe("stage 2: team and destination approval", () => {
   const member = newId("usr");
   const owner = newId("usr");
   const ev = (subject: string, object: unknown) => ({ id: "e2", subject, livemode: null, data: { object } });
-  it("member changes go to owners, with emails looked up by user id at fan-out", () => {
+  it("owner/admin changes go to owners and admins (identity audit fix d); others to owners; emails at fan-out", () => {
     const p = plan(
       ev("evt.identity.member.role_changed", {
         account_id: acct,
@@ -276,7 +276,7 @@ describe("stage 2: team and destination approval", () => {
     );
     expect(p).toEqual({
       template: "security.member_changed",
-      audience: { kind: "account", accountId: acct, recipients: "security", roles: ["owner"] },
+      audience: { kind: "account", accountId: acct, recipients: "security", roles: ["owner", "admin"] },
       variables: {
         change: "role_changed",
         member_id: member,
@@ -301,7 +301,29 @@ describe("stage 2: team and destination approval", () => {
       );
       expect(x.variables).toMatchObject({ change, previous_role: null, actor_id: null });
       expect(x.userEmails).toEqual({ member_email: member, actor_email: null });
+      expect(x.audience).toMatchObject({ roles: ["owner"] });
     }
+    // demoting an admin to viewer is an owner/admin change too
+    const demoted = plan(
+      ev("evt.identity.member.role_changed", {
+        account_id: acct,
+        user_id: member,
+        role: "viewer",
+        previous_role: "admin",
+        actor_user_id: owner,
+      }),
+    );
+    expect(demoted.audience).toMatchObject({ roles: ["owner", "admin"] });
+    const removedAdmin = plan(
+      ev("evt.identity.member.removed", {
+        account_id: acct,
+        user_id: member,
+        role: "admin",
+        previous_role: null,
+        actor_user_id: owner,
+      }),
+    );
+    expect(removedAdmin.audience).toMatchObject({ roles: ["owner", "admin"] });
   });
   it("a destination awaiting approval asks the owners/admins who have not approved yet", () => {
     const d = internalSettlementDestination({
@@ -322,6 +344,20 @@ describe("stage 2: team and destination approval", () => {
       domainEvent("evt.identity.settlement_destination.pending_approval", { ...d, approval: undefined } as never),
     );
     expect(legacy.audience).toMatchObject({ exclude: [] });
+    // spec 0.2.1 `created_by`: the creator is excluded even when not counted in approved_by
+    const creator = newId("usr");
+    const withCreator = plan(
+      domainEvent("evt.identity.settlement_destination.pending_approval", {
+        ...d,
+        created_by: creator,
+        approval: { required: 2, approved_by: [owner], rejected_by: null },
+      } as never),
+    );
+    expect(withCreator.audience).toMatchObject({ exclude: [creator, owner] });
+    const sameCreator = plan(
+      domainEvent("evt.identity.settlement_destination.pending_approval", { ...d, created_by: owner } as never),
+    );
+    expect(sameCreator.audience).toMatchObject({ exclude: [owner] });
     expect(legacy.variables).toMatchObject({ approvals_required: 2, approvals_received: 0 });
     expect(
       skip(
@@ -331,6 +367,69 @@ describe("stage 2: team and destination approval", () => {
         } as never),
       ),
     ).toBe("the destination was rejected");
+  });
+});
+
+describe("spec 0.2.1: recovery and secret rotation", () => {
+  const acct = newId("acct");
+  const owner = newId("usr");
+  const ev = (subject: string, object: unknown, livemode: boolean | null = null) => ({
+    id: "e4",
+    subject,
+    livemode,
+    data: { object },
+  });
+  it("security.recovery: owners and admins of every locked account; the user named at fan-out", () => {
+    const user = newId("usr");
+    const a2 = newId("acct");
+    const object = {
+      user_id: user,
+      account_ids: [acct, a2],
+      recovered_at: "2026-11-08T09:00:00.000Z",
+      lock_until: "2026-11-10T09:00:00.000Z",
+    };
+    const p = plan(ev("evt.identity.user.recovered", object));
+    expect(p).toEqual({
+      template: "security.recovery",
+      audience: { kind: "accounts", accountIds: [acct, a2], recipients: "security", roles: ["owner", "admin"] },
+      variables: {
+        user_id: user,
+        recovered_at: object.recovered_at,
+        lock_until: object.lock_until,
+        dashboard_url: o.dashboardOrigin,
+      },
+      accountId: null,
+      livemode: null,
+      userEmails: { user_email: user },
+    });
+    expect(skip(ev("evt.identity.user.recovered", { ...object, account_ids: [] }))).toBe("the user manages no account");
+  });
+  it("webhooks.secret_rotated: owners, admins and developers; never a secret", () => {
+    const we = newId("we");
+    const object = {
+      endpoint_id: we,
+      account_id: acct,
+      url: "https://shop.example/hook",
+      previous_secret_expires_at: null,
+      actor_user_id: owner,
+    };
+    const p = plan(ev("evt.webhooks.endpoint.secret_rotated", object, true));
+    expect(p).toEqual({
+      template: "webhooks.secret_rotated",
+      audience: { kind: "account", accountId: acct, recipients: "developer" },
+      variables: {
+        endpoint_id: we,
+        url: object.url,
+        previous_secret_expires_at: null,
+        actor_id: owner,
+        livemode: true,
+        dashboard_url: o.dashboardOrigin,
+      },
+      accountId: acct,
+      livemode: true,
+      userEmails: { actor_email: owner },
+    });
+    expect(JSON.stringify(p)).not.toMatch(/whsec_/);
   });
 });
 
