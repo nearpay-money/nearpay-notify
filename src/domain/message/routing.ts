@@ -22,6 +22,16 @@ export type Audience =
       /** Users never mailed (e.g. who already approved a destination). */
       readonly exclude?: readonly string[];
     }
+  /**
+   * Spec 0.2.1: users of several accounts (e.g. every account a recovered user manages), mailed once
+   * each (dedupe by user id across the accounts).
+   */
+  | {
+      readonly kind: "accounts";
+      readonly accountIds: readonly string[];
+      readonly recipients: RecipientKind;
+      readonly roles?: readonly Role[];
+    }
   /** The paying customer (payments `receipt-context`), if the session collected an email. */
   | { readonly kind: "customer"; readonly paymentIntentId: string }
   /** The refunded customer (payments refund `receipt-context`), if an email is on record. */
@@ -36,8 +46,9 @@ export interface Plan {
   readonly accountId: string | null;
   readonly livemode: boolean | null;
   /**
-   * Variables filled from the account's recipient list at fan-out (`variable → user id`): member
-   * events carry ids only, so an owner/admin's email is shown when identity lists them, else null.
+   * Variables filled at fan-out (`variable → user id`): events carry ids only, so the email comes from
+   * the recipient list, else from identity `notification-recipients?user=` (spec 0.2.1: any role, and
+   * members removed in the last 7 days), else null (the mail shows the id).
    */
   readonly userEmails?: Readonly<Record<string, string | null>>;
 }
@@ -88,12 +99,16 @@ export const NOTIFY_SUBJECTS = [
   "evt.compliance.kyb.submitted",
   "evt.compliance.account.action_requested",
   "evt.sentinel.kill_switch.release_requested",
+  // spec 0.2.1
+  "evt.identity.user.recovered",
+  "evt.webhooks.endpoint.secret_rotated",
 ] as const satisfies readonly Subject[];
 
 type O = Record<string, unknown>;
 const str = (o: O, k: string) => o[k] as string;
 
 const OWNERS: readonly Role[] = ["owner"];
+const MANAGERS: readonly Role[] = ["owner", "admin"];
 
 const unixIso = (v: unknown) => new Date((v as number) * 1000).toISOString();
 
@@ -267,9 +282,12 @@ export function planFor(e: RoutedEvent, o: RoutingOptions): { plan: Plan } | { s
     case "evt.identity.member.removed":
     case "evt.identity.member.role_changed": {
       const actor = (x.actor_user_id as string | null) ?? null;
+      // identity audit fix (d): every owner/admin change reaches owners AND admins (the other managers
+      // must see a puppet admin being added or a manager being removed); other roles: owners only
+      const managerChange = [x.role, x.previous_role].some((r) => (MANAGERS as readonly unknown[]).includes(r));
       return plan(
         "security.member_changed",
-        account(str(x, "account_id"), "security", OWNERS),
+        account(str(x, "account_id"), "security", managerChange ? MANAGERS : OWNERS),
         {
           change: e.subject.slice("evt.identity.member.".length),
           member_id: str(x, "user_id"),
@@ -286,10 +304,17 @@ export function planFor(e: RoutedEvent, o: RoutingOptions): { plan: Plan } | { s
       const approval = (x.approval as O | null | undefined) ?? null;
       const approvedBy = (approval?.approved_by as string[] | undefined) ?? [];
       if (approval?.rejected_by) return { skip: "the destination was rejected" };
+      // spec 0.2.1 `created_by`: the creator is never asked, even when not (yet) counted in approved_by
+      const creator = typeof x.created_by === "string" ? [x.created_by] : [];
       return plan(
         "security.destination_approval",
-        // the creator (counted in `approved_by`) and earlier approvers cannot approve again
-        { kind: "account", accountId: str(x, "account"), recipients: "security", exclude: approvedBy },
+        // the creator and earlier approvers cannot approve again
+        {
+          kind: "account",
+          accountId: str(x, "account"),
+          recipients: "security",
+          exclude: [...new Set([...creator, ...approvedBy])],
+        },
         {
           ...destinationVariables(x, o),
           approvals_required: (approval?.required as number | undefined) ?? 2,
@@ -326,6 +351,42 @@ export function planFor(e: RoutedEvent, o: RoutingOptions): { plan: Plan } | { s
           console_url: o.consoleOrigin,
         },
         target.type === "account" ? str(target, "id") : null,
+      );
+    }
+    // spec 0.2.1
+    case "evt.identity.user.recovered": {
+      const accounts = (x.account_ids as string[] | undefined) ?? [];
+      if (accounts.length === 0) return { skip: "the user manages no account" };
+      return plan(
+        "security.recovery",
+        // owners and admins of every locked account (the recovered user is one of them)
+        { kind: "accounts", accountIds: accounts, recipients: "security", roles: MANAGERS },
+        {
+          user_id: str(x, "user_id"),
+          recovered_at: str(x, "recovered_at"),
+          lock_until: str(x, "lock_until"),
+          dashboard_url: o.dashboardOrigin,
+        },
+        null,
+        { userEmails: { user_email: str(x, "user_id") } },
+      );
+    }
+    case "evt.webhooks.endpoint.secret_rotated": {
+      const actor = (x.actor_user_id as string | null) ?? null;
+      return plan(
+        "webhooks.secret_rotated",
+        // owners, admins and developers (identity `kind=developer`)
+        account(str(x, "account_id"), "developer"),
+        {
+          endpoint_id: str(x, "endpoint_id"),
+          url: str(x, "url"),
+          previous_secret_expires_at: (x.previous_secret_expires_at as string | null) ?? null,
+          actor_id: actor,
+          livemode: lm === true,
+          dashboard_url: o.dashboardOrigin,
+        },
+        str(x, "account_id"),
+        { userEmails: { actor_email: actor } },
       );
     }
     default:

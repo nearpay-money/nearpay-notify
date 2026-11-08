@@ -220,4 +220,40 @@ export const SAMPLES: { readonly [T in TemplateName]: readonly Variables<T>[] } 
       console_url: CONSOLE,
     },
   ],
+  "security.recovery": [
+    {
+      user_id: "usr_01m6pm3ppnengb0aaefsa11e3j",
+      user_email: "owner@acme.example",
+      recovered_at: "2026-11-08T09:00:00.000Z",
+      lock_until: "2026-11-10T09:00:00.000Z",
+      dashboard_url: DASHBOARD,
+    },
+    {
+      user_id: "usr_01m6pm3ppnengb0aaefsa11e3k",
+      user_email: null,
+      recovered_at: "2026-11-08T09:00:00.000Z",
+      lock_until: "2026-11-10T09:00:00.000Z",
+      dashboard_url: DASHBOARD,
+    },
+  ],
+  "webhooks.secret_rotated": [
+    {
+      endpoint_id: "we_01m6pm3ppnengb0aaefsa11e3j",
+      url: "https://merchant.example/webhooks/nearpay",
+      previous_secret_expires_at: "2026-11-09T09:00:00.000Z",
+      actor_id: "usr_01m6pm3ppnengb0aaefsa11e3k",
+      actor_email: "dev@acme.example",
+      livemode: true,
+      dashboard_url: DASHBOARD,
+    },
+    {
+      endpoint_id: "we_01m6pm3ppnengb0aaefsa11e3k",
+      url: "https://merchant.example/webhooks/test",
+      previous_secret_expires_at: null,
+      actor_id: null,
+      actor_email: null,
+      livemode: false,
+      dashboard_url: DASHBOARD,
+    },
+  ],
 };

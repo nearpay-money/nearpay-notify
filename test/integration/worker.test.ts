@@ -328,7 +328,7 @@ describe("stage 2: team, approvals and KYB submission", () => {
     s.identity.on(getNotificationRecipients, async () => ({ recipients: [owner, admin, admin2] }));
   });
 
-  it("member changes reach owners only, naming the member and actor by email when identity lists them", async () => {
+  it("owner/admin changes reach owners and admins (audit fix d); others owners only; members named via ?user=", async () => {
     const e = domainEvent(
       "evt.identity.member.role_changed",
       {
@@ -341,25 +341,36 @@ describe("stage 2: team, approvals and KYB submission", () => {
       { accountUuid: toUuid(acct, "acct"), livemode: null },
     );
     await s.publishEvent(e);
-    const [m] = await s.mailpit.waitFor(
-      (x) => to(owner.email)(x) && x.Subject === "Security alert: a team member's role changed",
+    const subject = "Security alert: a team member's role changed";
+    const ms = await s.mailpit.waitFor(
+      (x) => x.Subject === subject && [owner, admin, admin2].some((r) => to(r.email)(x)),
+      3,
     );
-    const body = await s.mailpit.message(m?.ID as string);
+    const body = await s.mailpit.message(ms[0]?.ID as string);
     expect(body.Text).toContain(`${admin.email} now has the Admin role (was Developer).`);
     expect(body.Text).toContain(`Changed by: ${owner.email}`);
-    await new Promise((res) => setTimeout(res, 500));
-    expect((await s.mailpit.messages()).filter((x) => to(admin.email)(x) || to(admin2.email)(x))).toEqual([]);
 
-    const viewer = newId("usr");
+    // a viewer (not on the security list) is named through `?user=` (spec 0.2.1); owners only
+    const viewer = { user_id: newId("usr"), email: `viewer+${acct}@merchant.test`, role: "viewer" as const };
+    s.identity.on(getNotificationRecipients, async (ctx) => ({
+      recipients: ctx.query.user ? (ctx.query.user === viewer.user_id ? [viewer] : []) : [owner, admin, admin2],
+    }));
     await s.publishEvent(
       domainEvent(
         "evt.identity.member.added",
-        { account_id: acct, user_id: viewer, role: "viewer", previous_role: null, actor_user_id: null },
+        { account_id: acct, user_id: viewer.user_id, role: "viewer", previous_role: null, actor_user_id: null },
         { accountUuid: toUuid(acct, "acct"), livemode: null },
       ),
     );
     const [added] = await s.mailpit.waitFor((x) => to(owner.email)(x) && x.Subject.endsWith("was added"));
-    expect((await s.mailpit.message(added?.ID as string)).Text).toContain(`A team member (${viewer})`);
+    expect((await s.mailpit.message(added?.ID as string)).Text).toContain(`${viewer.email} now has access`);
+    expect(s.identity.callsTo(getNotificationRecipients).some((c) => (c.query as { user?: string }).user)).toBe(true);
+    await new Promise((res) => setTimeout(res, 500));
+    expect(
+      (await s.mailpit.messages()).filter(
+        (x) => x.Subject.endsWith("was added") && (to(admin.email)(x) || to(admin2.email)(x) || to(viewer.email)(x)),
+      ),
+    ).toEqual([]);
   });
 
   it("a destination awaiting approval asks only the owners/admins who have not approved, with the fingerprint", async () => {
@@ -395,6 +406,70 @@ describe("stage 2: team, approvals and KYB submission", () => {
     );
     const [m] = await s.mailpit.waitFor((x) => to(owner.email)(x) && x.Subject === "We received your business details");
     expect((await s.mailpit.message(m?.ID as string)).Text).toContain("2026-11-07 09:30 UTC");
+  });
+});
+
+describe("spec 0.2.1: recovery and secret-rotation mails", () => {
+  it("security.recovery reaches the owners and admins of every locked account once each", async () => {
+    const a1 = newId("acct");
+    const a2 = newId("acct");
+    const user = { user_id: newId("usr"), email: `recovered+${a1}@merchant.test`, role: "owner" as const };
+    const other = { user_id: newId("usr"), email: `admin+${a2}@merchant.test`, role: "admin" as const };
+    const dev = { user_id: newId("usr"), email: `dev+${a2}@merchant.test`, role: "developer" as const };
+    s.identity.on(getNotificationRecipients, async (ctx) => ({
+      recipients: ctx.params.id === a1 ? [user] : [{ ...user, role: "admin" as const }, other, dev],
+    }));
+    await s.publishEvent(
+      domainEvent(
+        "evt.identity.user.recovered",
+        {
+          user_id: user.user_id,
+          account_ids: [a1, a2],
+          recovered_at: "2026-11-08T09:00:00.000Z",
+          lock_until: "2026-11-10T09:00:00.000Z",
+        },
+        { accountUuid: null, livemode: null },
+      ),
+    );
+    const subject = "Security alert: account access was recovered";
+    const ms = await s.mailpit.waitFor((x) => x.Subject === subject && (to(user.email)(x) || to(other.email)(x)), 2);
+    const text = (await s.mailpit.message(ms[0]?.ID as string)).Text;
+    expect(text).toContain(`${user.email} regained access`);
+    expect(text).toContain("until 2026-11-10 09:00 UTC");
+    await new Promise((res) => setTimeout(res, 500));
+    const all = (await s.mailpit.messages()).filter((x) => x.Subject === subject);
+    expect(all.filter(to(user.email))).toHaveLength(1); // listed on both accounts, mailed once
+    expect(all.filter(to(dev.email))).toEqual([]);
+  });
+
+  it("webhooks.secret_rotated reaches owners, admins and developers, naming who rotated it", async () => {
+    const acct = newId("acct");
+    const dev = { user_id: newId("usr"), email: `dev+${acct}@merchant.test`, role: "developer" as const };
+    s.identity.on(getNotificationRecipients, async (ctx) => ({
+      recipients: ctx.query.kind === "developer" ? [...team(acct), dev] : team(acct),
+    }));
+    await s.publishEvent(
+      domainEvent(
+        "evt.webhooks.endpoint.secret_rotated",
+        {
+          endpoint_id: newId("we"),
+          account_id: acct,
+          url: "https://merchant.example/webhooks/nearpay",
+          previous_secret_expires_at: "2026-11-09T09:00:00.000Z",
+          actor_user_id: dev.user_id,
+        },
+        { accountUuid: toUuid(acct, "acct"), livemode: true },
+      ),
+    );
+    const ms = await s.mailpit.waitFor((x) => x.Subject === "Webhook signing secret rotated", 3);
+    expect(ms.filter(to(dev.email))).toHaveLength(1);
+    const text = (await s.mailpit.message(ms[0]?.ID as string)).Text;
+    expect(text).toContain(`Rotated by: ${dev.email}`);
+    expect(text).toContain("Until 2026-11-09 09:00 UTC");
+    expect(text).not.toMatch(/whsec_/);
+    expect(s.identity.callsTo(getNotificationRecipients).map((c) => (c.query as { kind: string }).kind)).toContain(
+      "developer",
+    );
   });
 });
 
