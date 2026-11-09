@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import { createRenderer } from "../../src/app/render.js";
 import { CREDENTIAL_TEMPLATES } from "../../src/app/send.js";
 import { INVOICE_STATUS_FITS, invoiceMail, renewalMail } from "../../src/domain/message/billing.js";
+import { MANDATE_TEMPLATES } from "../../src/domain/message/mandate.js";
 import { INVOICE_TEMPLATES, planFor, type RoutedEvent, type RoutingOptions } from "../../src/domain/message/routing.js";
 import { LinkError, safeHref } from "../../src/domain/template/blocks.js";
 import {
@@ -48,9 +49,14 @@ describe("routing (spec BILLING_EMAIL_TEMPLATES)", () => {
         expect(template).toBe("subscription.renewal_upcoming");
         continue;
       }
-      expect(INVOICE_TEMPLATES[subject as keyof typeof INVOICE_TEMPLATES]).toBe(template);
+      const mapped =
+        INVOICE_TEMPLATES[subject as keyof typeof INVOICE_TEMPLATES] ??
+        MANDATE_TEMPLATES[subject as keyof typeof MANDATE_TEMPLATES];
+      expect(mapped).toBe(template);
     }
-    expect(Object.keys(INVOICE_TEMPLATES).length + 1).toBe(Object.keys(BILLING_EMAIL_TEMPLATES).length);
+    expect(Object.keys(INVOICE_TEMPLATES).length + Object.keys(MANDATE_TEMPLATES).length + 1).toBe(
+      Object.keys(BILLING_EMAIL_TEMPLATES).length,
+    );
   });
   it("invoice.sent → invoice.issued for the invoice's customer; no secret or PII in the plan", () => {
     const i = invoice();

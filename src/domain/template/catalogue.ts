@@ -75,6 +75,38 @@ const invoiceFields = {
 };
 const INVOICE_AMOUNTS = ["total", "amount_due", "amount_remaining"] as const;
 
+/** Token amount in base units (INV-5: a decimal string, never a float). */
+const baseUnits = z.string().regex(/^(0|[1-9][0-9]{0,77})$/);
+const nearAccount = z.string().regex(/^[a-z0-9._-]{2,64}$/);
+/** A payer transaction on the vault (one function call), shown so it can be sent from any wallet. */
+const nearCall = z.object({
+  contract: nearAccount,
+  method: z.enum(["cancel", "withdraw"]),
+  args_json: text(500),
+  deposit_yocto: z.string().regex(/^(0|[1-9][0-9]{0,38})$/),
+  gas: z.string().regex(/^[1-9][0-9]{0,17}$/),
+});
+const mandateFields = {
+  mandate_id: text(64),
+  subscription_id: text(64),
+  merchant_name: text(200),
+  customer_name: z.string().max(200).nullable(),
+  livemode: z.boolean(),
+  payer: nearAccount,
+  vault_contract: nearAccount,
+  onchain_id: z.int().min(0),
+  token: z.object({ symbol: text(32), decimals: z.int().min(0).max(255) }),
+  amount_per_period: baseUnits,
+  interval: z.enum(["day", "week", "month", "year"]).nullable(),
+  interval_count: z.int().min(1).max(36).nullable(),
+  balance: baseUnits,
+  next_collect_at: iso.nullable(),
+  cancel_call: nearCall.nullable(),
+  withdraw_call: nearCall.nullable(),
+  /** Hosted invoice page with the invoice secret (a bearer link: wiped once sent). */
+  manage_url: url.nullable(),
+};
+
 const destination = z.object({
   label: z.string().max(100).nullable(),
   chain: text(64),
@@ -263,9 +295,21 @@ const SCHEMAS = {
       interval_count: z.int().min(1).max(12),
       next_amount: pricingAmount,
       items: z.array(z.object({ description: text(500), quantity: z.int().min(1) })).max(20),
+      /** Stage 4: the subscription collects renewals from a vault mandate (else each invoice is paid by hand). */
+      auto_debit: z.boolean().default(false),
     },
     ["next_amount"],
   ),
+  // stage 4 — mandate mails to the payer (lld/notify.md §4, spec 0.4.0); recipient: the customer
+  "mandate.activated": z.object({ ...mandateFields, cancel_call: nearCall }),
+  "mandate.insufficient_funds": z.object({ ...mandateFields, invoice_id: z.string().max(64).nullable() }),
+  "mandate.canceled": z.object({ ...mandateFields, refunded: baseUnits }),
+  "mandate.unlinked": z.object({
+    ...mandateFields,
+    cancel_call: nearCall,
+    unlinked_reason: z.string().max(64).nullable(),
+  }),
+  "mandate.released": z.object({ ...mandateFields, cancel_call: nearCall }),
 } as const;
 
 export type TemplateName = keyof typeof SCHEMAS;
@@ -468,6 +512,118 @@ function reminderCopy(v: Variables<"invoice.reminder">) {
     heading: "Invoice overdue",
     text: `Invoice ${v.number} from ${v.merchant_name} was due ${days(d)} ago${due ? `, on ${due}` : ""}, and is still unpaid.`,
   };
+}
+
+type MandateVars =
+  | Variables<"mandate.activated">
+  | Variables<"mandate.insufficient_funds">
+  | Variables<"mandate.canceled">
+  | Variables<"mandate.unlinked">
+  | Variables<"mandate.released">;
+
+/** Token base units with the mandate token's symbol and decimals (INV-5). */
+const tokenAmount = (a: string, v: { token: { symbol: string; decimals: number } }) =>
+  formatAmount(a, "asset", v.token);
+
+/** `100 USDC per month`; without the subscription's period, `per period`. */
+function perPeriod(v: MandateVars): string {
+  const a = tokenAmount(v.amount_per_period, v);
+  if (!v.interval || !v.interval_count) return `${a} per period`;
+  return v.interval_count === 1 ? `${a} per ${v.interval}` : `${a} every ${v.interval_count} ${v.interval}s`;
+}
+
+/** NEAR account for display: implicit (64-hex) accounts are shortened, named ones kept whole. */
+export function shortAccount(a: string): string {
+  return a.length > 32 ? `${a.slice(0, 8)}…${a.slice(-8)}` : a;
+}
+
+/** `100 Tgas`; deposits under 0.000001 NEAR in yoctoNEAR, else in NEAR. */
+export function formatGas(gas: string): string {
+  return `${formatUnits(BigInt(gas), 12, 0)} Tgas`;
+}
+export function formatDeposit(yocto: string): string {
+  const y = BigInt(yocto);
+  return y < 10n ** 18n ? `${y} yoctoNEAR` : `${formatUnits(y, 24, 0)} NEAR`;
+}
+
+const UNLINKED_REASONS: Record<string, string> = {
+  subscription_not_auto_debit: "the subscription does not use auto-debit",
+  subscription_ended: "the subscription has ended",
+  already_linked: "another mandate already pays this subscription",
+  receiver_kind_mismatch: "its receiving account is not the merchant's",
+  receiver_not_destination: "its receiving account is not the merchant's",
+  token_mismatch: "its token differs from the subscription's",
+  amount_mismatch: "its amount per period differs from the subscription's price",
+  period_mismatch: "its period differs from the subscription's billing period",
+  fee_mismatch: "its fee differs from the agreed terms",
+  start_too_late: "it starts after the current billing period ends",
+  max_periods_too_low: "it covers fewer periods than the subscription needs",
+  mode_mismatch: "it was created in the other mode (test or live) than the subscription",
+};
+const unlinkedReason = (r: string | null) =>
+  (r ? UNLINKED_REASONS[r] : undefined) ?? "its terms do not match the subscription's";
+
+/** Amount, balance and identifiers of a mandate (`withNext`: the next collection time). */
+function mandateFacts(v: MandateVars, withNext: boolean): Block {
+  const covered = BigInt(v.amount_per_period) > 0n ? BigInt(v.balance) / BigInt(v.amount_per_period) : 0n;
+  return {
+    kind: "facts",
+    rows: [
+      ["Amount", perPeriod(v)],
+      ["Balance", `${tokenAmount(v.balance, v)} (covers ${covered} period${covered === 1n ? "" : "s"})`],
+      ...(withNext && v.next_collect_at ? ([["Next collection", formatDate(v.next_collect_at)]] as const) : []),
+      ["Your NEAR account", shortAccount(v.payer)],
+      ["Mandate", v.mandate_id],
+      ["Vault", v.vault_contract],
+      ["Vault mandate id", String(v.onchain_id)],
+    ],
+  };
+}
+
+/** A payer transaction spelled out so it can be sent from any NEAR wallet (FR-BIL-04). */
+function callBlocks(c: NonNullable<MandateVars["cancel_call"]>, payer: string, label: string): Block[] {
+  return [
+    { kind: "p", text: `${label}, signed by your NEAR account ${shortAccount(payer)}:` },
+    {
+      kind: "facts",
+      rows: [
+        ["Contract", c.contract],
+        ["Method", c.method],
+        ["Deposit", formatDeposit(c.deposit_yocto)],
+        ["Gas", formatGas(c.gas)],
+      ],
+    },
+    { kind: "code", label: "Arguments", text: c.args_json },
+  ];
+}
+
+const mandateBanner = (livemode: boolean): Block[] =>
+  livemode
+    ? []
+    : [
+        {
+          kind: "callout",
+          tone: "warning",
+          text: "Test mode — this mandate is in the sandbox vault stand-in; no real funds moved.",
+        },
+      ];
+
+/** INV-1 line every mandate mail carries, and the link warning when a hosted link is shown. */
+function mandateNotes(v: { merchant_name: string; manage_url: string | null }): Block[] {
+  return [
+    ...(v.manage_url
+      ? [
+          {
+            kind: "note",
+            text: "The subscription page link is personal: anyone who has it can see your invoice, so do not forward it.",
+          } as const,
+        ]
+      : []),
+    {
+      kind: "note",
+      text: `NearPay never holds these funds and cannot move them: they stay in the vault contract under your NEAR account, which only collects what you authorised for ${v.merchant_name}. Only you (or ${v.merchant_name}'s receiving account) can cancel. Contact ${v.merchant_name} with questions about your subscription.`,
+    },
+  ];
 }
 
 const en: { [T in TemplateName]: (v: Variables<T>) => Content } = {
@@ -1112,11 +1268,16 @@ const en: { [T in TemplateName]: (v: Variables<T>) => Content } = {
     const amount = formatAmount(v.next_amount, v.currency, v.asset);
     const day = formatDay(v.renews_at);
     const period = formatInterval(v.interval, v.interval_count);
+    const how = v.auto_debit
+      ? `${v.merchant_name} then collects ${amount} from your auto-debit mandate; if the mandate cannot pay, ${v.merchant_name} emails you an invoice to pay on the secure invoice page.`
+      : `${v.merchant_name} will then email you an invoice for ${amount}, which you pay on the secure invoice page.`;
     return {
       subject: v.trialing
         ? `Your ${v.merchant_name} trial ends on ${day}${testTag(v.livemode)}`
         : `Your ${v.merchant_name} subscription renews on ${day}${testTag(v.livemode)}`,
-      preheader: `${v.merchant_name} will send you an invoice for ${amount}.`,
+      preheader: v.auto_debit
+        ? `${amount} will be collected from your auto-debit mandate.`
+        : `${v.merchant_name} will send you an invoice for ${amount}.`,
       heading: v.trialing ? "Your trial ends soon" : "Subscription renewal coming up",
       blocks: [
         ...(v.livemode ? [] : [{ kind: "callout", tone: "warning", text: TEST_MODE } as const]),
@@ -1124,8 +1285,8 @@ const en: { [T in TemplateName]: (v: Variables<T>) => Content } = {
         {
           kind: "p",
           text: v.trialing
-            ? `Your free trial with ${v.merchant_name} ends on ${day}. Your subscription then starts and ${v.merchant_name} will email you an invoice for ${amount}, which you pay on the secure invoice page.`
-            : `Your subscription with ${v.merchant_name} renews on ${day}. ${v.merchant_name} will then email you an invoice for ${amount}, which you pay on the secure invoice page.`,
+            ? `Your free trial with ${v.merchant_name} ends on ${day} and your subscription then starts. ${how}`
+            : `Your subscription with ${v.merchant_name} renews on ${day}. ${how}`,
         },
         {
           kind: "facts",
@@ -1133,13 +1294,167 @@ const en: { [T in TemplateName]: (v: Variables<T>) => Content } = {
             ["Next invoice", amount],
             [v.trialing ? "Trial ends" : "Renews", day],
             ["Billing", period],
+            ...(v.auto_debit ? ([["Payment", "Auto-debit from your vault mandate"]] as const) : []),
             ...v.items.map((i) => [i.description, `Quantity ${i.quantity}`] as const),
           ],
         },
         {
           kind: "note",
-          text: `Nothing is charged automatically: you pay each invoice yourself. To change or cancel your subscription, contact $v.merchant_namebefore $day.`,
+          text: v.auto_debit
+            ? `Make sure your mandate's balance covers ${amount} before ${day}. To change or cancel your subscription, contact ${v.merchant_name} before ${day}; you can cancel the mandate yourself at any time.`
+            : `Nothing is charged automatically: you pay each invoice yourself. To change or cancel your subscription, contact ${v.merchant_name} before ${day}.`,
         },
+      ],
+    };
+  },
+  // stage 4 — mandate mails to the payer
+  "mandate.activated": (v) => {
+    const per = perPeriod(v);
+    return {
+      subject: `Auto-debit is set up for your ${v.merchant_name} subscription${testTag(v.livemode)}`,
+      preheader: `${per} is collected from your vault balance. You can cancel at any time.`,
+      heading: "Auto-debit is active",
+      blocks: [
+        ...mandateBanner(v.livemode),
+        ...greeting(v.customer_name),
+        {
+          kind: "p",
+          text: `Your auto-debit mandate for your subscription with ${v.merchant_name} is active. Each billing period, ${v.merchant_name}'s renewal is collected from the balance you deposited in the NearPay subscription vault, so you no longer pay each invoice by hand.`,
+        },
+        mandateFacts(v, true),
+        {
+          kind: "callout",
+          tone: "info",
+          text: "You can cancel at any time. Cancelling stops all future collections and returns the remaining balance to your NEAR account.",
+        },
+        ...callBlocks(v.cancel_call, v.payer, "To cancel from any NEAR wallet, send this transaction"),
+        ...(v.manage_url ? [{ kind: "button", label: "Manage auto-debit", href: v.manage_url } as const] : []),
+        ...mandateNotes(v),
+      ],
+    };
+  },
+  "mandate.insufficient_funds": (v) => {
+    const per = tokenAmount(v.amount_per_period, v);
+    const balance = tokenAmount(v.balance, v);
+    return {
+      subject: `Top-up needed: auto-debit for ${v.merchant_name}${testTag(v.livemode)}`,
+      preheader: `Your mandate holds ${balance}; this period needs ${per}.`,
+      heading: "Your auto-debit balance is too low",
+      blocks: [
+        ...mandateBanner(v.livemode),
+        ...greeting(v.customer_name),
+        {
+          kind: "p",
+          text: `${v.merchant_name} could not collect this period's ${per} because your auto-debit mandate holds only ${balance}.`,
+        },
+        {
+          kind: "p",
+          text: `${v.merchant_name} emails you this period's invoice${v.invoice_id ? ` (${v.invoice_id})` : ""} to pay on the secure invoice page. To keep auto-debit for later periods, top up your mandate.`,
+        },
+        mandateFacts(v, false),
+        ...(v.manage_url ? [{ kind: "button", label: "Top up or pay", href: v.manage_url } as const] : []),
+        ...mandateNotes(v),
+      ],
+    };
+  },
+  "mandate.canceled": (v) => {
+    const refunded = BigInt(v.refunded) > 0n;
+    return {
+      subject: `Auto-debit canceled: ${v.merchant_name}${testTag(v.livemode)}`,
+      preheader: refunded
+        ? `${tokenAmount(v.refunded, v)} was returned to your NEAR account.`
+        : "No further periods will be collected.",
+      heading: "Auto-debit canceled",
+      blocks: [
+        ...mandateBanner(v.livemode),
+        ...greeting(v.customer_name),
+        {
+          kind: "p",
+          text: `Your auto-debit mandate for your subscription with ${v.merchant_name} is canceled. No further periods will be collected from it.`,
+        },
+        {
+          kind: "facts",
+          rows: [
+            ...(refunded ? ([["Returned to you", tokenAmount(v.refunded, v)]] as const) : []),
+            ["Your NEAR account", shortAccount(v.payer)],
+            ["Mandate", v.mandate_id],
+            ["Vault mandate id", String(v.onchain_id)],
+          ],
+        },
+        ...(refunded
+          ? [
+              {
+                kind: "p",
+                text: `The vault returned ${tokenAmount(v.refunded, v)} to ${shortAccount(v.payer)}.`,
+              } as const,
+            ]
+          : v.withdraw_call
+            ? [
+                {
+                  kind: "callout",
+                  tone: "warning",
+                  text: `The refund failed, so ${BigInt(v.balance) > 0n ? tokenAmount(v.balance, v) : "your remaining balance"} stays in the vault for you. Withdraw it from the subscription page, or send the withdraw transaction below from your wallet.`,
+                } as const,
+                ...callBlocks(v.withdraw_call, v.payer, "To withdraw from any NEAR wallet, send this transaction"),
+                ...(v.manage_url ? [{ kind: "button", label: "Withdraw", href: v.manage_url } as const] : []),
+              ]
+            : [{ kind: "p", text: "No balance remained on the mandate." } as const]),
+        {
+          kind: "note",
+          text: `If your subscription continues, ${v.merchant_name} emails you each invoice to pay on the secure invoice page.`,
+        },
+        ...mandateNotes({ ...v, manage_url: refunded ? null : v.manage_url }),
+      ],
+    };
+  },
+  "mandate.unlinked": (v) => ({
+    subject: `Action needed: cancel your mandate for ${v.merchant_name} to get your funds back${testTag(v.livemode)}`,
+    preheader: "NearPay will not collect from this mandate. Cancel it to get the balance back.",
+    heading: "This mandate will not be used",
+    blocks: [
+      ...mandateBanner(v.livemode),
+      ...greeting(v.customer_name),
+      {
+        kind: "p",
+        text: `You funded an auto-debit mandate for your subscription with ${v.merchant_name}, but ${unlinkedReason(v.unlinked_reason)}. NearPay will never collect from it.`,
+      },
+      {
+        kind: "callout",
+        tone: "info",
+        text: `Cancel the mandate to get your balance of ${tokenAmount(v.balance, v)} back to your NEAR account.`,
+      },
+      mandateFacts(v, false),
+      ...callBlocks(v.cancel_call, v.payer, "To cancel from any NEAR wallet, send this transaction"),
+      ...(v.manage_url ? [{ kind: "button", label: "Open the subscription page", href: v.manage_url } as const] : []),
+      ...mandateNotes(v),
+    ],
+  }),
+  "mandate.released": (v) => {
+    const left = BigInt(v.balance) > 0n;
+    return {
+      subject: `Auto-debit ended for ${v.merchant_name}: cancel your mandate${left ? " to get your balance back" : ""}${testTag(v.livemode)}`,
+      preheader: left
+        ? `${tokenAmount(v.balance, v)} is still in the vault for you.`
+        : "NearPay will not collect from your mandate any more.",
+      heading: "Auto-debit ended",
+      blocks: [
+        ...mandateBanner(v.livemode),
+        ...greeting(v.customer_name),
+        {
+          kind: "p",
+          text: `Your subscription with ${v.merchant_name} has ended or no longer uses auto-debit, so NearPay will not collect from your mandate any more.`,
+        },
+        {
+          kind: "callout",
+          tone: "info",
+          text: left
+            ? `${tokenAmount(v.balance, v)} remains in the vault under your NEAR account. Cancel the mandate to get it back.`
+            : "No balance remains on the mandate. You can cancel it to close it.",
+        },
+        mandateFacts(v, false),
+        ...callBlocks(v.cancel_call, v.payer, "To cancel from any NEAR wallet, send this transaction"),
+        ...(v.manage_url ? [{ kind: "button", label: "Open the subscription page", href: v.manage_url } as const] : []),
+        ...mandateNotes(v),
       ],
     };
   },

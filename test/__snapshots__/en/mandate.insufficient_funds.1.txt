@@ -1,0 +1,25 @@
+Subject: Top-up needed: auto-debit for Acme Test Shop
+
+Your auto-debit balance is too low
+
+Hello Dana Whitfield,
+
+Acme Test Shop could not collect this period's 25.00 USDC because your auto-debit mandate holds only 12.00 USDC.
+
+Acme Test Shop emails you this period's invoice (in_01m6pm3ppnengb0aaefsa11e3m) to pay on the secure invoice page. To keep auto-debit for later periods, top up your mandate.
+
+Amount: 25.00 USDC per month
+Balance: 12.00 USDC (covers 0 periods)
+Your NEAR account: dana.near
+Mandate: md_01m6pm3ppnengb0aaefsa11e3j
+Vault: v1.vault.nearpay.near
+Vault mandate id: 7
+
+Top up or pay: https://pay.nearpay.localhost/i/in_01m6pm3ppnengb0aaefsa11e3m#isec_sample_Mn4dT8wQ
+
+The subscription page link is personal: anyone who has it can see your invoice, so do not forward it.
+
+NearPay never holds these funds and cannot move them: they stay in the vault contract under your NEAR account, which only collects what you authorised for Acme Test Shop. Only you (or Acme Test Shop's receiving account) can cancel. Contact Acme Test Shop with questions about your subscription.
+
+--
+NearPay · non-custodial payments on NEAR Intents · A transactional message, never marketing.

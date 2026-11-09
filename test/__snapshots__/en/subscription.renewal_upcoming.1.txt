@@ -12,7 +12,7 @@ Billing: Monthly
 Pro plan: Quantity 1
 Extra seat: Quantity 3
 
-Nothing is charged automatically: you pay each invoice yourself. To change or cancel your subscription, contact $v.merchant_namebefore $day.
+Nothing is charged automatically: you pay each invoice yourself. To change or cancel your subscription, contact Acme Test Shop before 1 Dec 2026.
 
 --
 NearPay · non-custodial payments on NEAR Intents · A transactional message, never marketing.

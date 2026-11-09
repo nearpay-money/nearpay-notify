@@ -9,6 +9,7 @@ import { withTx } from "@nearpay-internal/db";
 import { toUuid } from "@nearpay-internal/ids";
 import { chooseRecipients, lookupEmails, type Recipient } from "../domain/message/audience.js";
 import { type InvoiceTemplate, invoiceMail, renewalMail } from "../domain/message/billing.js";
+import { type MandateTemplate, mandateMail } from "../domain/message/mandate.js";
 import { recipientHash } from "../domain/message/policy.js";
 import { type Plan, planFor, type RoutingOptions } from "../domain/message/routing.js";
 import type { Peers } from "../infra/clients/peers.js";
@@ -123,6 +124,20 @@ async function targets(d: FanoutDeps, plan: Plan): Promise<Target[] | string> {
       const ctx = await d.peers.subscriptionContext(a.subscriptionId);
       if (ctx === null) return `billing does not know ${a.subscriptionId}`;
       const r = renewalMail(ctx, {
+        subscriptionId: a.subscriptionId,
+        livemode: plan.livemode,
+        variables: plan.variables,
+      });
+      return "skip" in r ? r.skip : [{ key: "customer", to: r.to, variables: r.variables, accountId: r.accountId }];
+    }
+    case "mandate_customer": {
+      const ctx = await d.peers.mandateContext(a.mandateId);
+      if (ctx === null) return `billing does not know ${a.mandateId}`;
+      // fail closed: billing's answer must belong to the account the event was published for
+      if (a.accountUuid !== null && toUuid(ctx.account_id, "acct") !== a.accountUuid)
+        return "billing names another account";
+      const r = mandateMail(plan.template as MandateTemplate, ctx, {
+        mandateId: a.mandateId,
         subscriptionId: a.subscriptionId,
         livemode: plan.livemode,
         variables: plan.variables,
