@@ -5,6 +5,8 @@ export interface OutgoingEmail {
   /** Stable id (the message id): the `Message-ID` header, so a retried send can be deduplicated. */
   readonly id: string;
   readonly from: string;
+  /** `Reply-To` (optional; the From mailbox may not receive mail). */
+  readonly replyTo?: string;
   readonly to: string;
   readonly subject: string;
   readonly html: string;

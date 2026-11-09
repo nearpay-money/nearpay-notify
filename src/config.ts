@@ -3,6 +3,7 @@ import { baseConfigShape, flag, list, loadConfig, secret, url } from "@nearpay-i
 import { z } from "zod";
 
 const email = z.email();
+const mailbox = z.string().regex(/^[^<>\r\n]{1,100} <[^<>\s@]+@[^<>\s@]+>$/, "expected `Name <address>`");
 
 const shared = {
   ...baseConfigShape,
@@ -16,14 +17,25 @@ export const apiShape = { ...shared };
 export const workerShape = {
   ...shared,
   natsUrl: url(["nats:", "tls:"]),
-  /** `smtp` locally (Mailpit); `postmark` on the server arrives in Stage 5. */
+  /** `smtp`: Mailpit locally, any SMTP relay on the server (beta: Resend). */
   emailProvider: z.enum(["smtp"]).default("smtp"),
+  /** `smtps://host[:465]` (implicit TLS) or `smtp://host[:587]` (STARTTLS, required on the server stage); no password. */
   smtpUrl: url(["smtp:", "smtps:"]).default("smtp://mailpit:1025"),
+  /** SMTP user (Resend: `resend`); the password comes from NP_SMTP_PASSWORD_FILE. */
+  smtpUser: z.string().min(1).max(200).optional(),
+  /** SMTP password (Resend: the API key), from a secret file only. */
+  smtpPassword: secret().optional(),
   /** `Name <address>`. */
-  from: z
-    .string()
-    .regex(/^[^<>\r\n]{1,100} <[^<>\s@]+@[^<>\s@]+>$/, "expected `Name <address>`")
-    .default("NearPay <no-reply@nearpay.money>"),
+  from: mailbox.default("NearPay <no-reply@nearpay.money>"),
+  /** `Reply-To` of every mail (`Name <address>` or a bare address); unset: none. */
+  replyTo: z.union([mailbox, email]).optional(),
+  /**
+   * Sends per UTC day across all mail (the provider plan, e.g. Resend free: 100/day; keep headroom for the
+   * alert mails Alertmanager sends through the same account). 0: no cap.
+   */
+  emailDailyCap: z.coerce.number().int().min(0).max(1_000_000).default(0),
+  /** The last slots of the day kept for sign-in links, security and ops alerts and invitations. */
+  emailDailyReserve: z.coerce.number().int().min(0).max(1_000_000).default(10),
   /** Ops recipients of kill-switch, audit-finding and approval-request alerts (comma-separated). */
   securityContacts: list(email).default([]),
   /** Customer receipts for test-mode payments (true only where every mail is caught, e.g. Mailpit). */
@@ -50,4 +62,21 @@ export type ApiConfig = z.output<z.ZodObject<typeof apiShape>>;
 export type WorkerConfig = z.output<z.ZodObject<typeof workerShape>>;
 
 export const readApiConfig = () => loadConfig(apiShape);
-export const readWorkerConfig = () => loadConfig(workerShape);
+export const readWorkerConfig = () => checkWorkerConfig(loadConfig(workerShape));
+
+/**
+ * Server-stage rules (every NP_ENV but local/test): mail links point at public https origins (never a
+ * `*.localhost` default left in place by a missing variable).
+ */
+export function checkWorkerConfig<C extends Pick<WorkerConfig, "env" | "dashboardOrigin" | "consoleOrigin">>(c: C): C {
+  if (c.env === "local" || c.env === "test") return c;
+  for (const [name, value] of [
+    ["NP_DASHBOARD_ORIGIN", c.dashboardOrigin],
+    ["NP_CONSOLE_ORIGIN", c.consoleOrigin],
+  ] as const) {
+    const u = new URL(value);
+    if (u.protocol !== "https:" || u.hostname === "localhost" || u.hostname.endsWith(".localhost"))
+      throw new Error(`${name} must be a public https origin on the server stage (got ${value})`);
+  }
+  return c;
+}

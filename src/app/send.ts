@@ -5,13 +5,24 @@
  * recipient is suppressed. At-least-once: a crash after the provider accepted re-sends with the same
  * `Message-ID`.
  */
-import { sql } from "@nearpay-internal/db";
-import { afterFailure, overHourlyLimit, providerFor, type SendFailure } from "../domain/message/policy.js";
+import { enqueueJob, sql } from "@nearpay-internal/db";
+import {
+  afterFailure,
+  cappedOutcome,
+  type DailyCap,
+  dailyCeiling,
+  maxAttempts,
+  nextUtcDay,
+  overHourlyLimit,
+  providerFor,
+  type SendFailure,
+  utcDay,
+} from "../domain/message/policy.js";
 import { resolveLocale, type TemplateName } from "../domain/template/catalogue.js";
 import type { MessageStatus } from "../infra/db/schema.js";
 import { type EmailProvider, ProviderError } from "../providers/provider.js";
 import { dbNow, type Notify } from "./context.js";
-import { aad } from "./messages.js";
+import { aad, SEND_JOB } from "./messages.js";
 import type { Renderer } from "./render.js";
 
 export interface SendDeps {
@@ -20,10 +31,16 @@ export interface SendDeps {
   readonly primary: EmailProvider;
   readonly fallback?: EmailProvider;
   readonly from: string;
+  /** `Reply-To` of every mail (optional). */
+  readonly replyTo?: string;
   readonly hourlyLimit: number;
+  /** Daily send cap (provider plan limit); absent or limit 0: no cap. */
+  readonly dailyCap?: DailyCap;
+  /** Called once per UTC day (per process) when the cap first refuses a message: the operator alert. */
+  readonly onCapReached?: (info: { day: string; limit: number; template: string }) => void;
 }
 
-export type SendResult = MessageStatus | "skipped" | "retry";
+export type SendResult = MessageStatus | "skipped" | "retry" | "deferred";
 
 /**
  * Templates whose variables hold a bearer link, wiped once sent: single-use credentials (magic,
@@ -86,6 +103,11 @@ export async function sendQueued(d: SendDeps, messageId: string, attempt: number
     return "suppressed";
   }
 
+  if (d.dailyCap && d.dailyCap.limit > 0) {
+    const capped = await takeDailySlot(d, d.dailyCap, m);
+    if (capped) return capped;
+  }
+
   const slot = providerFor(attempt, d.fallback !== undefined);
   if (slot === null) {
     await finish(d, m, "failed", { last_error: m.last_error ?? "no attempts left", attempts: attempt - 1 });
@@ -107,7 +129,7 @@ export async function sendQueued(d: SendDeps, messageId: string, attempt: number
 
   const started = performance.now();
   try {
-    const r = await provider.send({ id: m.id, from: d.from, ...email });
+    const r = await provider.send({ id: m.id, from: d.from, ...(d.replyTo ? { replyTo: d.replyTo } : {}), ...email });
     d.n.metrics.sendSeconds(provider.name, (performance.now() - started) / 1000);
     await finish(d, m, "sent", {
       provider: provider.name,
@@ -156,4 +178,70 @@ export async function sendQueued(d: SendDeps, messageId: string, attempt: number
     log.error({ provider: provider.name, err: failure.message, suppressed: outcome.suppress }, "message failed");
     return "failed";
   }
+}
+
+/** UTC days the cap alert already fired for, per worker (its SendDeps). */
+const alerted = new WeakMap<SendDeps, string>();
+
+/**
+ * Reserves one of today's send slots (atomic conditional increment, so concurrent workers never overshoot), or
+ * handles a message the cap refuses: short-lived links and messages queued too long ago fail (`daily_cap`), the
+ * rest are deferred to the next UTC day by a new `message.send` job (the message stays queued). Returns null when
+ * a slot was taken. A slot stays taken when the provider call then fails (the cap errs on the safe side).
+ */
+async function takeDailySlot(
+  d: SendDeps,
+  cap: DailyCap,
+  m: { id: string; template: string; created_at: Date; attempts: number },
+): Promise<SendResult | null> {
+  const now = await dbNow(d.n.db);
+  const day = utcDay(now);
+  const ceiling = dailyCeiling(cap, m.template);
+  // the insert branch (first send of the day) is within any ceiling >= 1
+  const taken =
+    ceiling > 0 &&
+    (
+      await sql<{ sent: number }>`
+        insert into email_daily_counts as c (day, sent) values (${day}::date, 1)
+        on conflict (day) do update set sent = c.sent + 1 where c.sent < ${ceiling}
+        returning c.sent`.execute(d.n.db)
+    ).rows.length === 1;
+  if (taken) return null;
+  await sql`
+    insert into email_daily_counts as c (day, sent, capped_at) values (${day}::date, 0, now())
+    on conflict (day) do update set capped_at = coalesce(c.capped_at, now())`.execute(d.n.db);
+  const log = d.n.log.child({ message: m.id, template: m.template });
+  if (alerted.get(d) !== day) {
+    alerted.set(d, day);
+    log.error(
+      { day, limit: cap.limit, reserve: cap.reserve },
+      "daily email cap reached: non-essential mail is deferred to the next UTC day (NP_EMAIL_DAILY_CAP)",
+    );
+    d.onCapReached?.({ day, limit: cap.limit, template: m.template });
+  }
+  if (cappedOutcome(m.template, m.created_at, now) === "fail") {
+    await finish(d, m, "failed", { last_error: "daily_cap", attempts: m.attempts });
+    d.n.metrics.capped({ template: m.template, outcome: "failed" });
+    log.warn("daily email cap: message failed (short-lived link or queued too long)");
+    return "failed";
+  }
+  const runAt = nextUtcDay(now);
+  await d.n.db.transaction().execute(async (tx) => {
+    await tx
+      .updateTable("messages")
+      .set({ last_error: `daily_cap: deferred to ${runAt.toISOString()}`, updated_at: now })
+      .where("id", "=", m.id)
+      .where("status", "=", "queued")
+      .execute();
+    await enqueueJob(tx, {
+      kind: SEND_JOB,
+      payload: { message_id: m.id },
+      runAt,
+      dedupeKey: `${SEND_JOB}:${m.id}:${utcDay(runAt)}`,
+      maxAttempts: maxAttempts(true),
+    });
+  });
+  d.n.metrics.capped({ template: m.template, outcome: "deferred" });
+  log.warn({ run_at: runAt.toISOString() }, "daily email cap: message deferred");
+  return "deferred";
 }
