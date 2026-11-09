@@ -200,3 +200,96 @@ describe("retention", () => {
     ).toBeDefined();
   });
 });
+
+describe("daily send cap (beta: Resend free plan)", () => {
+  const capped = (limit: number, reserve: number, onCapReached?: SendDeps["onCapReached"]) => ({
+    dailyCap: { limit, reserve },
+    ...(onCapReached ? { onCapReached } : {}),
+  });
+  const resetCap = () => sql`delete from email_daily_counts`.execute(s.admin.db);
+  const sentToday = async () =>
+    Number(
+      (
+        await sql<{ n: number }>`select coalesce(max(sent), 0)::int as n from email_daily_counts
+          where day = (now() at time zone 'UTC')::date`.execute(s.admin.db)
+      ).rows[0]?.n,
+    );
+
+  it("counts each send; non-essential mail stops at cap − reserve and is deferred to the next UTC day", async () => {
+    await resetCap();
+    const p = scripted("smtp");
+    const alerts: unknown[] = [];
+    const d = deps(
+      p,
+      capped(3, 1, (i) => alerts.push(i)),
+    );
+    const a = await queue("cap-a@example.test", "payment.receipt");
+    const b = await queue("cap-b@example.test", "payment.receipt");
+    const c = await queue("cap-c@example.test", "payment.receipt");
+    expect(await sendQueued(d, a.id, 1)).toBe("sent");
+    expect(await sendQueued(d, b.id, 1)).toBe("sent");
+    expect(await sentToday()).toBe(2);
+    // the third receipt would eat the reserved slot
+    expect(await sendQueued(d, c.id, 1)).toBe("deferred");
+    expect(p.sent).toHaveLength(2);
+    const r = await row(c.id);
+    expect(r.status).toBe("queued");
+    expect(r.last_error).toMatch(/^daily_cap: deferred to \d{4}-\d{2}-\d{2}T00:/);
+    const job = await s.admin.db
+      .selectFrom("jobs")
+      .select(["run_at", "dedupe_key"])
+      .where("dedupe_key", "like", `message.send:${c.id}:%`)
+      .executeTakeFirstOrThrow();
+    expect(new Date(job.run_at).getTime()).toBeGreaterThan(Date.now());
+    expect(alerts).toHaveLength(1);
+    expect(await sentToday()).toBe(2);
+
+    // essential mail may still use the reserve, then the cap is hard
+    const link = await queue("cap-link@example.test", "security.destination_activated");
+    expect(await sendQueued(d, link.id, 1)).toBe("sent");
+    expect(await sentToday()).toBe(3);
+    const magic = await queue("cap-magic@example.test", "auth.magic_link");
+    // a sign-in link would expire before tomorrow: it fails instead of waiting
+    expect(await sendQueued(d, magic.id, 1)).toBe("failed");
+    expect(await row(magic.id)).toMatchObject({ status: "failed", last_error: "daily_cap" });
+    // the alert fires once per day
+    expect(alerts).toHaveLength(1);
+  });
+
+  it("a message capped for too long fails; no cap (limit 0) never counts", async () => {
+    await resetCap();
+    const d = deps(scripted("smtp"), capped(1, 0));
+    const first = await queue("cap-first@example.test", "payment.receipt");
+    expect(await sendQueued(d, first.id, 1)).toBe("sent");
+    const old = await queue("cap-old@example.test", "payment.receipt");
+    await sql`update messages set created_at = now() - interval '4 days' where id = ${old.id}`.execute(s.admin.db);
+    expect(await sendQueued(d, old.id, 1)).toBe("failed");
+    expect(await row(old.id)).toMatchObject({ last_error: "daily_cap" });
+
+    await resetCap();
+    const free = await queue("cap-free@example.test", "payment.receipt");
+    expect(await sendQueued(deps(scripted("smtp"), capped(0, 0)), free.id, 1)).toBe("sent");
+    expect(await sentToday()).toBe(0);
+  });
+
+  it("concurrent sends never overshoot the cap", async () => {
+    await resetCap();
+    const p = scripted("smtp");
+    const d = deps(p, capped(4, 0));
+    const ids = await Promise.all(
+      Array.from({ length: 10 }, (_, i) => queue(`cap-par-${i}@example.test`, "payment.receipt")),
+    );
+    const results = await Promise.all(ids.map(({ id }) => sendQueued(d, id, 1)));
+    expect(results.filter((r) => r === "sent")).toHaveLength(4);
+    expect(results.filter((r) => r === "deferred")).toHaveLength(6);
+    expect(await sentToday()).toBe(4);
+  });
+
+  it("passes Reply-To to the provider", async () => {
+    await resetCap();
+    const p = scripted("smtp");
+    const { id } = await queue("reply@example.test");
+    expect(await sendQueued(deps(p, { replyTo: "nearpaydotmoney@gmail.com" }), id, 1)).toBe("sent");
+    expect(p.sent[0]?.replyTo).toBe("nearpaydotmoney@gmail.com");
+  });
+});

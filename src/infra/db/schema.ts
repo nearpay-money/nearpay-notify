@@ -34,9 +34,17 @@ export interface SuppressionsTable {
   created_at: Timestamp;
 }
 
+/** Daily send cap counter (migrations/0002_email_daily_counts.sql). */
+export interface EmailDailyCountsTable {
+  day: ColumnType<string, string, string>;
+  sent: Generated<number>;
+  capped_at: NullableTimestamp;
+}
+
 export interface NotifyTables {
   messages: MessagesTable;
   suppressions: SuppressionsTable;
+  email_daily_counts: EmailDailyCountsTable;
 }
 
 export type DB = NotifyTables & KitTables;

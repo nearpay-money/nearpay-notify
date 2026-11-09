@@ -140,7 +140,18 @@ export async function createWorker(
       serviceToken: notifyServiceToken(config.identityUrl, config.serviceClientSecret),
     });
   const domain = /@([^>]+)>$/.exec(config.from)?.[1] ?? "nearpay.money";
-  const primary = deps.provider ?? smtpProvider({ url: config.smtpUrl, timeoutMs: config.sendTimeoutMs, domain });
+  const primary =
+    deps.provider ??
+    smtpProvider({
+      url: config.smtpUrl,
+      timeoutMs: config.sendTimeoutMs,
+      domain,
+      env: config.env,
+      user: config.smtpUser,
+      password: config.smtpPassword,
+    });
+  if (config.emailDailyCap > 0)
+    n.log.info({ limit: config.emailDailyCap, reserve: config.emailDailyReserve }, "daily email cap on");
 
   const bus = deps.bus ?? (await connectBus({ url: config.natsUrl, name: `notify-worker@${hostname()}` }));
   service.addReadiness("bus", () => {
@@ -155,6 +166,21 @@ export async function createWorker(
   );
   service.metrics.collectJobsDue(() => jobsDue(database.db));
   service.metrics.collectDeadLettersOpen(() => deadLettersOpen(database.db));
+  service.metrics.gauge(
+    "email_daily_cap_remaining",
+    "Send slots left today under NP_EMAIL_DAILY_CAP (-1: no cap).",
+    [],
+    async (g) => {
+      if (config.emailDailyCap <= 0) {
+        g.set(-1);
+        return;
+      }
+      const r = await sql<{ n: string }>`
+        select coalesce(max(sent), 0)::text as n from email_daily_counts
+        where day = (now() at time zone 'UTC')::date`.execute(database.db);
+      g.set(Math.max(0, config.emailDailyCap - Number(r.rows[0]?.n ?? 0)));
+    },
+  );
   service.metrics.gauge("messages_queued", "Messages waiting to be sent.", [], async (g) => {
     const r = await sql<{ n: string }>`select count(*)::text as n from messages where status = 'queued'`.execute(
       database.db,
@@ -178,7 +204,9 @@ export async function createWorker(
           primary,
           ...(deps.fallback ? { fallback: deps.fallback } : {}),
           from: config.from,
+          ...(config.replyTo ? { replyTo: config.replyTo } : {}),
           hourlyLimit: config.recipientHourlyLimit,
+          dailyCap: { limit: config.emailDailyCap, reserve: config.emailDailyReserve },
         },
         { retentionDays: config.messageRetentionDays },
       ),

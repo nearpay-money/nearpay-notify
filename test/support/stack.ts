@@ -113,6 +113,13 @@ export interface StackOptions {
   provider?: EmailProvider;
   fallback?: EmailProvider;
   hourlyLimit?: number;
+  dailyCap?: number;
+  dailyReserve?: number;
+  /** Overrides the Mailpit URL (e.g. the authenticating Mailpit). */
+  smtpUrl?: string;
+  smtpUser?: string;
+  smtpPassword?: string;
+  replyTo?: string;
 }
 
 export async function startStack(o: StackOptions = {}): Promise<Stack> {
@@ -171,6 +178,11 @@ export async function startStack(o: StackOptions = {}): Promise<Stack> {
       sendTimeoutMs: 5_000,
       messageRetentionDays: 90,
       recipientHourlyLimit: o.hourlyLimit ?? 20,
+      emailDailyCap: o.dailyCap ?? 0,
+      emailDailyReserve: o.dailyReserve ?? 10,
+      ...(o.smtpUrl ? { smtpUrl: o.smtpUrl } : {}),
+      ...(o.smtpUser ? { smtpUser: o.smtpUser, smtpPassword: o.smtpPassword } : {}),
+      ...(o.replyTo ? { replyTo: o.replyTo } : {}),
     };
     const w = await createWorker(config, {
       database: workerDb,
