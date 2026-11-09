@@ -52,6 +52,51 @@ const assetInvoice = {
   hosted_invoice_url: `${PAY}/i/in_01m6pm3ppnengb0aaefsa11e3k#isec_sample_Zp7nQe1c`,
 };
 
+/** Vault `cancel` call as billing prepares it for the payer (100 Tgas, 1 yoctoNEAR). */
+const cancelCall = {
+  contract: "v1.vault.nearpay.near",
+  method: "cancel" as "cancel" | "withdraw",
+  args_json: '{"mandate_id":7}',
+  deposit_yocto: "1",
+  gas: "100000000000000",
+};
+/** A linked live USDC mandate (25 USDC per month, 3 periods funded). */
+const mandate = {
+  mandate_id: "md_01m6pm3ppnengb0aaefsa11e3j",
+  subscription_id: "sub_01m6pm3ppnengb0aaefsa11e3m",
+  merchant_name: "Acme Test Shop",
+  customer_name: "Dana Whitfield",
+  livemode: true,
+  payer: "dana.near",
+  vault_contract: "v1.vault.nearpay.near",
+  onchain_id: 7,
+  token: { symbol: "USDC", decimals: 6 },
+  amount_per_period: "25000000",
+  interval: "month" as "day" | "week" | "month" | "year" | null,
+  interval_count: 1 as number | null,
+  balance: "75000000",
+  next_collect_at: "2026-12-01T00:00:00.000Z" as string | null,
+  cancel_call: cancelCall,
+  withdraw_call: null as typeof cancelCall | null,
+  manage_url: `${PAY}/i/in_01m6pm3ppnengb0aaefsa11e3m#isec_sample_Mn4dT8wQ` as string | null,
+};
+/** A sandbox-vault mandate of an implicit account, every 2 weeks, without the customer's name. */
+const testMandate = {
+  ...mandate,
+  mandate_id: "md_01m6pm3ppnengb0aaefsa11e3k",
+  customer_name: null,
+  livemode: false,
+  payer: "98793cd91a3f870fb126f66285808c7e094afcfc4eda8a970f6648cdf0dbd6de",
+  vault_contract: "vault.sandbox.nearpay.near",
+  onchain_id: 0,
+  token: { symbol: "USDT", decimals: 6 },
+  amount_per_period: "9990000",
+  interval: "week" as const,
+  interval_count: 2,
+  balance: "29970000",
+  cancel_call: { ...cancelCall, contract: "vault.sandbox.nearpay.near", args_json: '{"mandate_id":0}' },
+};
+
 const destination = {
   label: "Treasury (Base)",
   chain: "eip155:8453",
@@ -350,6 +395,7 @@ export const SAMPLES: { readonly [T in TemplateName]: readonly Variables<T>[] } 
         { description: "Pro plan", quantity: 1 },
         { description: "Extra seat", quantity: 3 },
       ],
+      auto_debit: false,
     },
     {
       subscription_id: "sub_01m6pm3ppnengb0aaefsa11e3k",
@@ -364,6 +410,54 @@ export const SAMPLES: { readonly [T in TemplateName]: readonly Variables<T>[] } 
       asset: { symbol: "USDC", decimals: 6 },
       next_amount: "40000000",
       items: [{ description: "Starter plan", quantity: 1 }],
+      auto_debit: false,
     },
+    {
+      subscription_id: "sub_01m6pm3ppnengb0aaefsa11e3m",
+      merchant_name: "Acme Test Shop",
+      customer_name: "Dana Whitfield",
+      livemode: true,
+      trialing: false,
+      renews_at: "2026-12-01T00:00:00.000Z",
+      interval: "month",
+      interval_count: 1,
+      currency: "usd",
+      asset: null,
+      next_amount: 2500,
+      items: [{ description: "Pro plan", quantity: 1 }],
+      auto_debit: true,
+    },
+  ],
+  // stage 4 — mandate mails to the payer
+  "mandate.activated": [
+    mandate,
+    {
+      ...testMandate,
+      next_collect_at: null,
+      manage_url: null,
+    },
+  ],
+  "mandate.insufficient_funds": [
+    { ...mandate, balance: "12000000", invoice_id: "in_01m6pm3ppnengb0aaefsa11e3m" },
+    { ...testMandate, balance: "0", invoice_id: null, manage_url: null },
+  ],
+  "mandate.canceled": [
+    { ...mandate, balance: "0", cancel_call: null, next_collect_at: null, refunded: "75000000", manage_url: null },
+    {
+      ...testMandate,
+      cancel_call: null,
+      next_collect_at: null,
+      refunded: "0",
+      withdraw_call: { ...testMandate.cancel_call, method: "withdraw" },
+    },
+    { ...mandate, customer_name: null, balance: "0", cancel_call: null, next_collect_at: null, refunded: "0" },
+  ],
+  "mandate.unlinked": [
+    { ...mandate, unlinked_reason: "amount_mismatch", next_collect_at: null },
+    { ...testMandate, unlinked_reason: null, manage_url: null },
+  ],
+  "mandate.released": [
+    { ...mandate, next_collect_at: null },
+    { ...testMandate, balance: "0", next_collect_at: null, manage_url: null },
   ],
 };

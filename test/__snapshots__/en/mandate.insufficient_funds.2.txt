@@ -1,0 +1,21 @@
+Subject: Top-up needed: auto-debit for Acme Test Shop [test]
+
+Your auto-debit balance is too low
+
+Test mode — this mandate is in the sandbox vault stand-in; no real funds moved.
+
+Acme Test Shop could not collect this period's 9.99 USDT because your auto-debit mandate holds only 0.00 USDT.
+
+Acme Test Shop emails you this period's invoice to pay on the secure invoice page. To keep auto-debit for later periods, top up your mandate.
+
+Amount: 9.99 USDT every 2 weeks
+Balance: 0.00 USDT (covers 0 periods)
+Your NEAR account: 98793cd9…f0dbd6de
+Mandate: md_01m6pm3ppnengb0aaefsa11e3k
+Vault: vault.sandbox.nearpay.near
+Vault mandate id: 0
+
+NearPay never holds these funds and cannot move them: they stay in the vault contract under your NEAR account, which only collects what you authorised for Acme Test Shop. Only you (or Acme Test Shop's receiving account) can cancel. Contact Acme Test Shop with questions about your subscription.
+
+--
+NearPay · non-custodial payments on NEAR Intents · A transactional message, never marketing.

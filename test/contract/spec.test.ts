@@ -9,6 +9,7 @@ import { unimplementedRoutes } from "@nearpay-internal/service";
 import {
   BILLING_EMAIL_TEMPLATES,
   getInvoiceNotificationContext,
+  getMandateNotificationContext,
   getNotificationRecipients,
   getReceiptContext,
   getRefundReceiptContext,
@@ -113,6 +114,7 @@ describe("routes", () => {
       getRefundReceiptContext,
       getInvoiceNotificationContext,
       getSubscriptionNotificationContext,
+      getMandateNotificationContext,
     ]) {
       const scopes = route.auth.filter((a) => a.startsWith("service:")).map((a) => a.slice("service:".length));
       expect(

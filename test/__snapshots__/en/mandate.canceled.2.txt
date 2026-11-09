@@ -1,0 +1,34 @@
+Subject: Auto-debit canceled: Acme Test Shop [test]
+
+Auto-debit canceled
+
+Test mode — this mandate is in the sandbox vault stand-in; no real funds moved.
+
+Your auto-debit mandate for your subscription with Acme Test Shop is canceled. No further periods will be collected from it.
+
+Your NEAR account: 98793cd9…f0dbd6de
+Mandate: md_01m6pm3ppnengb0aaefsa11e3k
+Vault mandate id: 0
+
+The refund failed, so 29.97 USDT stays in the vault for you. Withdraw it from the subscription page, or send the withdraw transaction below from your wallet.
+
+To withdraw from any NEAR wallet, send this transaction, signed by your NEAR account 98793cd9…f0dbd6de:
+
+Contract: vault.sandbox.nearpay.near
+Method: withdraw
+Deposit: 1 yoctoNEAR
+Gas: 100 Tgas
+
+Arguments:
+  {"mandate_id":0}
+
+Withdraw: https://pay.nearpay.localhost/i/in_01m6pm3ppnengb0aaefsa11e3m#isec_sample_Mn4dT8wQ
+
+If your subscription continues, Acme Test Shop emails you each invoice to pay on the secure invoice page.
+
+The subscription page link is personal: anyone who has it can see your invoice, so do not forward it.
+
+NearPay never holds these funds and cannot move them: they stay in the vault contract under your NEAR account, which only collects what you authorised for Acme Test Shop. Only you (or Acme Test Shop's receiving account) can cancel. Contact Acme Test Shop with questions about your subscription.
+
+--
+NearPay · non-custodial payments on NEAR Intents · A transactional message, never marketing.

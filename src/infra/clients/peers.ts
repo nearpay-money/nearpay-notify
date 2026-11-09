@@ -1,7 +1,7 @@
 /**
  * Owner-service clients for recipient resolution (lld/notify.md §4): identity
  * `notification-recipients`, payments `receipt-context` (payments) and refund `receipt-context`
- * (stage 2), billing invoice and subscription `notification-context` (stage 3), all with notify's
+ * (stage 2), billing invoice and subscription `notification-context` (stage 3) and mandate `notification-context` (stage 4), all with notify's
  * service token. The invoice context carries the hosted invoice link with the invoice secret: it is
  * returned to the caller only, never logged.
  */
@@ -11,6 +11,7 @@ import { serviceTokenClient } from "@nearpay-internal/auth";
 import { HttpError, httpClient } from "@nearpay-internal/http";
 import {
   getInvoiceNotificationContext,
+  getMandateNotificationContext,
   getNotificationRecipients,
   getReceiptContext,
   getRefundReceiptContext,
@@ -23,6 +24,7 @@ export type ReceiptContext = RouteResponse<typeof getReceiptContext>;
 export type RefundReceiptContext = RouteResponse<typeof getRefundReceiptContext>;
 export type InvoiceContext = RouteResponse<typeof getInvoiceNotificationContext>;
 export type SubscriptionContext = RouteResponse<typeof getSubscriptionNotificationContext>;
+export type MandateContext = RouteResponse<typeof getMandateNotificationContext>;
 
 export interface Peers {
   /** null when identity does not know the account. */
@@ -40,6 +42,11 @@ export interface Peers {
   invoiceContext(invoiceId: string, reminder: number | null): Promise<InvoiceContext | null>;
   /** Stage 3: null when billing does not know the subscription. */
   subscriptionContext(subscriptionId: string): Promise<SubscriptionContext | null>;
+  /**
+   * Stage 4: null when billing does not know the mandate. The answer carries the hosted link with
+   * the invoice secret: returned to the caller only, never logged.
+   */
+  mandateContext(mandateId: string): Promise<MandateContext | null>;
 }
 
 const missing = (e: unknown) => e instanceof HttpError && e.status === 404;
@@ -80,6 +87,8 @@ export function httpPeers(o: {
       orNull(() =>
         billing.call(getSubscriptionNotificationContext, { params: { id: subscriptionId as `sub_${string}` } }),
       ),
+    mandateContext: (mandateId) =>
+      orNull(() => billing.call(getMandateNotificationContext, { params: { id: mandateId as `md_${string}` } })),
     async recipients(accountId, kind) {
       try {
         return (await identity.call(getNotificationRecipients, { params: { id: accountId }, query: { kind } }))

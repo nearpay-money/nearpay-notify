@@ -1,0 +1,18 @@
+Subject: Your Acme Test Shop subscription renews on 1 Dec 2026
+
+Subscription renewal coming up
+
+Hello Dana Whitfield,
+
+Your subscription with Acme Test Shop renews on 1 Dec 2026. Acme Test Shop then collects 25.00 USD from your auto-debit mandate; if the mandate cannot pay, Acme Test Shop emails you an invoice to pay on the secure invoice page.
+
+Next invoice: 25.00 USD
+Renews: 1 Dec 2026
+Billing: Monthly
+Payment: Auto-debit from your vault mandate
+Pro plan: Quantity 1
+
+Make sure your mandate's balance covers 25.00 USD before 1 Dec 2026. To change or cancel your subscription, contact Acme Test Shop before 1 Dec 2026; you can cancel the mandate yourself at any time.
+
+--
+NearPay · non-custodial payments on NEAR Intents · A transactional message, never marketing.

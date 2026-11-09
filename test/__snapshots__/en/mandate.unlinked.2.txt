@@ -1,0 +1,31 @@
+Subject: Action needed: cancel your mandate for Acme Test Shop to get your funds back [test]
+
+This mandate will not be used
+
+Test mode — this mandate is in the sandbox vault stand-in; no real funds moved.
+
+You funded an auto-debit mandate for your subscription with Acme Test Shop, but its terms do not match the subscription's. NearPay will never collect from it.
+
+Cancel the mandate to get your balance of 29.97 USDT back to your NEAR account.
+
+Amount: 9.99 USDT every 2 weeks
+Balance: 29.97 USDT (covers 3 periods)
+Your NEAR account: 98793cd9…f0dbd6de
+Mandate: md_01m6pm3ppnengb0aaefsa11e3k
+Vault: vault.sandbox.nearpay.near
+Vault mandate id: 0
+
+To cancel from any NEAR wallet, send this transaction, signed by your NEAR account 98793cd9…f0dbd6de:
+
+Contract: vault.sandbox.nearpay.near
+Method: cancel
+Deposit: 1 yoctoNEAR
+Gas: 100 Tgas
+
+Arguments:
+  {"mandate_id":0}
+
+NearPay never holds these funds and cannot move them: they stay in the vault contract under your NEAR account, which only collects what you authorised for Acme Test Shop. Only you (or Acme Test Shop's receiving account) can cancel. Contact Acme Test Shop with questions about your subscription.
+
+--
+NearPay · non-custodial payments on NEAR Intents · A transactional message, never marketing.

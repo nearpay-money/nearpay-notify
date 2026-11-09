@@ -28,7 +28,7 @@ export type SendResult = MessageStatus | "skipped" | "retry";
 /**
  * Templates whose variables hold a bearer link, wiped once sent: single-use credentials (magic,
  * invitation, enrolment links) and, since stage 3, the hosted invoice link, whose fragment is the
- * long-lived invoice secret (billing serves it again through its context whenever a mail needs it).
+ * long-lived invoice secret (stage 4: also the mandate mails' `manage_url`) (billing serves it again through its context whenever a mail needs it).
  */
 export const CREDENTIAL_TEMPLATES: ReadonlySet<string> = new Set([
   "auth.magic_link",
@@ -37,6 +37,12 @@ export const CREDENTIAL_TEMPLATES: ReadonlySet<string> = new Set([
   "invoice.issued",
   "invoice.reminder",
   "invoice.paid",
+  // stage 4: `manage_url` is the latest invoice's hosted link (with its secret)
+  "mandate.activated",
+  "mandate.insufficient_funds",
+  "mandate.canceled",
+  "mandate.unlinked",
+  "mandate.released",
 ]);
 
 async function finish(

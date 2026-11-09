@@ -1,0 +1,21 @@
+Subject: Auto-debit canceled: Acme Test Shop
+
+Auto-debit canceled
+
+Hello Dana Whitfield,
+
+Your auto-debit mandate for your subscription with Acme Test Shop is canceled. No further periods will be collected from it.
+
+Returned to you: 75.00 USDC
+Your NEAR account: dana.near
+Mandate: md_01m6pm3ppnengb0aaefsa11e3j
+Vault mandate id: 7
+
+The vault returned 75.00 USDC to dana.near.
+
+If your subscription continues, Acme Test Shop emails you each invoice to pay on the secure invoice page.
+
+NearPay never holds these funds and cannot move them: they stay in the vault contract under your NEAR account, which only collects what you authorised for Acme Test Shop. Only you (or Acme Test Shop's receiving account) can cancel. Contact Acme Test Shop with questions about your subscription.
+
+--
+NearPay · non-custodial payments on NEAR Intents · A transactional message, never marketing.

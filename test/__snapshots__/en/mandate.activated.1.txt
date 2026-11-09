@@ -1,0 +1,36 @@
+Subject: Auto-debit is set up for your Acme Test Shop subscription
+
+Auto-debit is active
+
+Hello Dana Whitfield,
+
+Your auto-debit mandate for your subscription with Acme Test Shop is active. Each billing period, Acme Test Shop's renewal is collected from the balance you deposited in the NearPay subscription vault, so you no longer pay each invoice by hand.
+
+Amount: 25.00 USDC per month
+Balance: 75.00 USDC (covers 3 periods)
+Next collection: 2026-12-01 00:00 UTC
+Your NEAR account: dana.near
+Mandate: md_01m6pm3ppnengb0aaefsa11e3j
+Vault: v1.vault.nearpay.near
+Vault mandate id: 7
+
+You can cancel at any time. Cancelling stops all future collections and returns the remaining balance to your NEAR account.
+
+To cancel from any NEAR wallet, send this transaction, signed by your NEAR account dana.near:
+
+Contract: v1.vault.nearpay.near
+Method: cancel
+Deposit: 1 yoctoNEAR
+Gas: 100 Tgas
+
+Arguments:
+  {"mandate_id":7}
+
+Manage auto-debit: https://pay.nearpay.localhost/i/in_01m6pm3ppnengb0aaefsa11e3m#isec_sample_Mn4dT8wQ
+
+The subscription page link is personal: anyone who has it can see your invoice, so do not forward it.
+
+NearPay never holds these funds and cannot move them: they stay in the vault contract under your NEAR account, which only collects what you authorised for Acme Test Shop. Only you (or Acme Test Shop's receiving account) can cancel. Contact Acme Test Shop with questions about your subscription.
+
+--
+NearPay · non-custodial payments on NEAR Intents · A transactional message, never marketing.

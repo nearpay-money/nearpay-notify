@@ -8,6 +8,7 @@
  */
 import type { Subject } from "@nearpay-internal/spec";
 import type { TemplateName } from "../template/catalogue.js";
+import { MANDATE_TEMPLATES } from "./mandate.js";
 
 export type RecipientKind = "security" | "billing" | "developer";
 export type Role = "owner" | "admin" | "developer" | "finance" | "support" | "viewer";
@@ -44,7 +45,18 @@ export type Audience =
    */
   | { readonly kind: "invoice_customer"; readonly invoiceId: string; readonly reminder: number | null }
   /** Stage 3: the customer of a subscription (billing subscription `notification-context`). */
-  | { readonly kind: "subscription_customer"; readonly subscriptionId: string };
+  | { readonly kind: "subscription_customer"; readonly subscriptionId: string }
+  /**
+   * Stage 4: the payer of a vault mandate (billing mandate `notification-context`). The context also
+   * carries the payer's cancel/withdraw transactions and the hosted link with the invoice secret.
+   * `accountUuid` is the envelope's account: billing's answer must name the same account.
+   */
+  | {
+      readonly kind: "mandate_customer";
+      readonly mandateId: string;
+      readonly subscriptionId: string;
+      readonly accountUuid: string | null;
+    };
 
 export interface Plan {
   readonly template: TemplateName;
@@ -117,6 +129,12 @@ export const NOTIFY_SUBJECTS = [
   "evt.billing.invoice.paid",
   "evt.billing.invoice.voided",
   "evt.billing.subscription.renewal_upcoming",
+  // stage 4 — mandate mails to the payer (spec 0.4.0 `BILLING_EMAIL_TEMPLATES`)
+  "evt.billing.mandate.activated",
+  "evt.billing.mandate.insufficient_funds",
+  "evt.billing.mandate.canceled",
+  "evt.billing.mandate.unlinked",
+  "evt.billing.mandate.released",
 ] as const satisfies readonly Subject[];
 
 type O = Record<string, unknown>;
@@ -453,6 +471,27 @@ export function planFor(e: RoutedEvent, o: RoutingOptions): { plan: Plan } | { s
       return plan(
         "subscription.renewal_upcoming",
         { kind: "subscription_customer", subscriptionId: str(x, "id") },
+        // stage 4: an auto-debit renewal is collected from the mandate, not paid by hand
+        { auto_debit: x.collection_method === "auto_debit" },
+        null,
+      );
+    // stage 4 — mandate mails: the payer is resolved (and the status re-checked) from billing's context
+    case "evt.billing.mandate.activated":
+    case "evt.billing.mandate.insufficient_funds":
+    case "evt.billing.mandate.canceled":
+    case "evt.billing.mandate.unlinked":
+    case "evt.billing.mandate.released":
+      // nested-livemode guard: the mandate in the payload must be in the envelope's mode
+      if (x.livemode !== lm) return { skip: "the mandate's mode differs from the event's" };
+      if (lm === false && !o.testModeReceipts) return { skip: "test-mode customer mails are off" };
+      return plan(
+        MANDATE_TEMPLATES[e.subject as keyof typeof MANDATE_TEMPLATES],
+        {
+          kind: "mandate_customer",
+          mandateId: str(x, "id"),
+          subscriptionId: str(x, "subscription"),
+          accountUuid: e.account_id ?? null,
+        },
         {},
         null,
       );
