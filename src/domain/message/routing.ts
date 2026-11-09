@@ -79,6 +79,8 @@ export interface RoutedEvent {
   readonly account_id?: string | null;
   readonly subject: string;
   readonly livemode: boolean | null;
+  /** When the state change committed (envelope `occurred_at`). */
+  readonly occurred_at?: string;
   readonly data: { readonly object: unknown };
 }
 
@@ -166,6 +168,19 @@ function destinationVariables(d: O, o: RoutingOptions) {
   };
 }
 
+/** Clock slack between `active_at` (whole seconds) and the envelope's `occurred_at`. */
+const ACTIVE_NOW_SLACK_SECONDS = 60;
+
+/**
+ * True when a cooling-off destination has no wait: identity's cool-off is configurable
+ * (`NP_COOLOFF_SECONDS`, 0 in the beta), so `active_at` equals the time the cool-off started.
+ */
+export function activeNow(activeAt: unknown, occurredAt: string | undefined): boolean {
+  if (typeof activeAt !== "number" || !occurredAt) return false;
+  const at = Date.parse(occurredAt) / 1000;
+  return Number.isFinite(at) && activeAt - at <= ACTIVE_NOW_SLACK_SECONDS;
+}
+
 /** The plan for an event, or null when it sends nothing (with the reason in `skip`). */
 export function planFor(e: RoutedEvent, o: RoutingOptions): { plan: Plan } | { skip: string } {
   const x = e.data.object as O;
@@ -197,6 +212,7 @@ export function planFor(e: RoutedEvent, o: RoutingOptions): { plan: Plan } | { s
         {
           ...destinationVariables(x, o),
           active_at: typeof x.active_at === "number" ? new Date((x.active_at as number) * 1000).toISOString() : null,
+          active_now: activeNow(x.active_at, e.occurred_at),
         },
         str(x, "account"),
       );

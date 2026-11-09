@@ -125,6 +125,7 @@ export const SAMPLES: { readonly [T in TemplateName]: readonly Variables<T>[] } 
   "security.destination_pending": [
     { ...destination, active_at: "2026-11-06T10:00:00.000Z" },
     { ...destination, label: null, active_at: null },
+    { ...destination, active_at: "2026-11-06T10:00:00.000Z", active_now: true },
   ],
   "security.destination_activated": [destination],
   "security.destination_disabled": [

@@ -124,7 +124,11 @@ const SCHEMAS = {
     expires_in_minutes: z.int().min(1).max(1440),
   }),
   "account.welcome": z.object({ account_name: text(200), dashboard_url: url }),
-  "security.destination_pending": destination.extend({ active_at: iso.nullable() }),
+  "security.destination_pending": destination.extend({
+    active_at: iso.nullable(),
+    /** No cool-off wait (configurable; 0 in the beta). Absent on jobs queued before it existed. */
+    active_now: z.boolean().optional(),
+  }),
   "security.destination_activated": destination,
   "security.destination_disabled": destination.extend({ disabled_reason: z.string().max(200).nullable() }),
   "security.destination_blocked": z.object({ destination_id: text(64), dashboard_url: url }),
@@ -675,9 +679,11 @@ const en: { [T in TemplateName]: (v: Variables<T>) => Content } = {
     blocks: [
       {
         kind: "p",
-        text: v.active_at
-          ? `A settlement destination was added to your account. It becomes usable on ${formatDate(v.active_at)} unless it is disabled first.`
-          : "A settlement destination was added to your account and is in its cool-off period.",
+        text: v.active_now
+          ? "A settlement destination was added to your account. It is active now: new payments can settle to it."
+          : v.active_at
+            ? `A settlement destination was added to your account. It is active from ${formatDate(v.active_at)} unless it is disabled first.`
+            : "A settlement destination was added to your account and is in its cool-off period.",
       },
       ...destinationFacts(v),
       { kind: "p", text: NOT_YOU },
@@ -1021,7 +1027,7 @@ const en: { [T in TemplateName]: (v: Variables<T>) => Content } = {
     blocks: [
       {
         kind: "p",
-        text: `A teammate added a settlement destination to your account. It needs ${v.approvals_required === 1 ? "1 approval" : `${v.approvals_required} approvals`} from different owners or admins (${v.approvals_received} so far) before its 24-hour cool-off starts. No payments settle to it until then.`,
+        text: `A teammate added a settlement destination to your account. It needs ${v.approvals_required === 1 ? "1 approval" : `${v.approvals_required} approvals`} from different owners or admins (${v.approvals_received} so far) before it can become active. No payments settle to it until then, and a short security hold may apply after approval.`,
       },
       ...destinationFacts(v),
       {

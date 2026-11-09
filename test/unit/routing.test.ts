@@ -2,7 +2,7 @@ import { newId } from "@nearpay-internal/ids";
 import { SUBJECTS, type Subject } from "@nearpay-internal/spec";
 import { account, domainEvent, internalSettlementDestination, paymentIntent } from "@nearpay-internal/testing";
 import { describe, expect, it } from "vitest";
-import { NOTIFY_SUBJECTS, planFor, type RoutingOptions } from "../../src/domain/message/routing.js";
+import { activeNow, NOTIFY_SUBJECTS, planFor, type RoutingOptions } from "../../src/domain/message/routing.js";
 
 const o: RoutingOptions = {
   dashboardOrigin: "https://dashboard.nearpay.localhost",
@@ -64,6 +64,7 @@ describe("identity events", () => {
     });
     const noDate = plan(domainEvent("evt.identity.settlement_destination.cooling_off", { ...d, active_at: null }));
     expect(noDate.variables.active_at).toBeNull();
+    expect(noDate.variables.active_now).toBe(false);
     expect(plan(domainEvent("evt.identity.settlement_destination.activated", d)).template).toBe(
       "security.destination_activated",
     );
@@ -80,6 +81,30 @@ describe("identity events", () => {
     });
     const noReason = plan(domainEvent("evt.identity.settlement_destination.disabled", { ...d, disabled_reason: null }));
     expect(noReason.variables.disabled_reason).toBeNull();
+  });
+});
+
+describe("configurable destination cool-off (NP_COOLOFF_SECONDS)", () => {
+  it("marks the destination active now when active_at is the time the cool-off started", () => {
+    const t = Math.floor(Date.now() / 1000);
+    const d = internalSettlementDestination({ status: "cooling_off", active_at: t });
+    const zero = plan(domainEvent("evt.identity.settlement_destination.cooling_off", d));
+    expect(zero.variables).toMatchObject({ active_now: true, active_at: new Date(t * 1000).toISOString() });
+    const later = plan(
+      domainEvent("evt.identity.settlement_destination.cooling_off", { ...d, active_at: t + 3 * 3600 }),
+    );
+    expect(later.variables.active_now).toBe(false);
+  });
+  it("needs a numeric active_at and a parseable occurred_at; tolerates a minute of clock slack", () => {
+    const at = "2026-11-09T12:00:00.000Z";
+    const t = Date.parse(at) / 1000;
+    expect(activeNow(t, at)).toBe(true);
+    expect(activeNow(t - 3600, at)).toBe(true);
+    expect(activeNow(t + 60, at)).toBe(true);
+    expect(activeNow(t + 61, at)).toBe(false);
+    expect(activeNow(null, at)).toBe(false);
+    expect(activeNow(t, undefined)).toBe(false);
+    expect(activeNow(t, "not a date")).toBe(false);
   });
 });
 

@@ -1,0 +1,22 @@
+Subject: Security alert: a new settlement destination was added
+
+New settlement destination
+
+A settlement destination was added to your account. It is active now: new payments can settle to it.
+
+Label: Treasury (Base)
+Chain: Base
+Asset: nep141:base-0x833589fcd6edb6e08f4c7c32d4f71b54bda02913.omft.near
+
+Address:
+  0x52908400098527886e0f7030069857d2e4169ee7
+
+Fingerprint (compare with the one shown in the dashboard):
+  7KQ2-M9XA-31
+
+If you or a teammate did not make this change, sign in now, disable the destination and contact NearPay support.
+
+Review destinations: https://dashboard.nearpay.localhost/
+
+--
+NearPay · non-custodial payments on NEAR Intents · A transactional message, never marketing.
