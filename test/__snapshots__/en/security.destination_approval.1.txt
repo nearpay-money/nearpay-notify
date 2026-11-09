@@ -2,7 +2,7 @@ Subject: Action needed: approve a new settlement destination
 
 Settlement destination awaiting approval
 
-A teammate added a settlement destination to your account. It needs 2 approvals from different owners or admins (1 so far) before its 24-hour cool-off starts. No payments settle to it until then.
+A teammate added a settlement destination to your account. It needs 2 approvals from different owners or admins (1 so far) before it can become active. No payments settle to it until then, and a short security hold may apply after approval.
 
 Label: Treasury (Base)
 Chain: Base

@@ -2,7 +2,7 @@ Subject: Security alert: a new settlement destination was added
 
 New settlement destination
 
-A settlement destination was added to your account. It becomes usable on 2026-11-06 10:00 UTC unless it is disabled first.
+A settlement destination was added to your account. It is active from 2026-11-06 10:00 UTC unless it is disabled first.
 
 Label: Treasury (Base)
 Chain: Base
