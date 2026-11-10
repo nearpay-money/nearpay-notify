@@ -1,8 +1,8 @@
-Subject: Your business details were not approved
+Subject: Live payments are not available for your business
 
-Business details not approved
+Live payments not available
 
-NearPay could not approve the business details you submitted, so live payments are not available for this account. Test mode keeps working.
+NearPay can't offer live payments to this business, so live mode is off for this account. Test mode keeps working.
 
 Contact NearPay support if you have questions.
 

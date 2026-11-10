@@ -125,8 +125,8 @@ describe("account events", () => {
     const ms = await s.mailpit.waitFor(to(`owner+${acct}@merchant.test`), 2);
     const bodies = await Promise.all(ms.map((m) => s.mailpit.message(m.ID)));
     expect(bodies.map((b) => b.Subject).sort()).toEqual([
+      "Live payments are not available for your business",
       "We need more information about your business",
-      "Your business details were not approved",
     ]);
     expect(bodies.some((b) => b.Text.includes("Add your registration number"))).toBe(true);
     for (const b of bodies) {
@@ -396,7 +396,7 @@ describe("stage 2: team, approvals and KYB submission", () => {
     ).toEqual([]);
   });
 
-  it("a KYB submission is acknowledged to owners", async () => {
+  it("open onboarding (ADR-0024): no submission mail, the automatic approval is the You're live welcome", async () => {
     await s.publishEvent(
       domainEvent(
         "evt.compliance.kyb.submitted",
@@ -404,8 +404,19 @@ describe("stage 2: team, approvals and KYB submission", () => {
         { accountUuid: toUuid(acct, "acct"), livemode: null },
       ),
     );
-    const [m] = await s.mailpit.waitFor((x) => to(owner.email)(x) && x.Subject === "We received your business details");
-    expect((await s.mailpit.message(m?.ID as string)).Text).toContain("2026-11-07 09:30 UTC");
+    await s.publishEvent(
+      domainEvent(
+        "evt.compliance.kyb.approved",
+        { account_id: acct, status: "approved", reason: "auto-approved: open onboarding (ADR-0024)" },
+        { accountUuid: toUuid(acct, "acct"), livemode: null },
+      ),
+    );
+    const [m] = await s.mailpit.waitFor((x) => to(owner.email)(x) && x.Subject === "You're live on NearPay");
+    const text = (await s.mailpit.message(m?.ID as string)).Text;
+    expect(text).toContain("you can accept real payments");
+    expect(text).not.toContain("auto-approved");
+    const all = await s.mailpit.waitFor(to(owner.email), 1);
+    expect(all.map((x) => x.Subject)).not.toContain("We received your business details");
   });
 });
 

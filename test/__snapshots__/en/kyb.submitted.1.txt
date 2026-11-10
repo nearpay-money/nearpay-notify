@@ -2,9 +2,9 @@ Subject: We received your business details
 
 Business details received
 
-Your business details were submitted on 2026-11-07 09:30 UTC. NearPay will review the details you declared and email you when the review is done.
+Your business details were submitted on 2026-11-07 09:30 UTC. We'll email you as soon as live mode is on.
 
-Test mode keeps working while you wait. Live mode becomes available once the review is approved and you have an active settlement destination.
+Test mode keeps working meanwhile. Live payments also need an active settlement destination.
 
 Open the dashboard: https://dashboard.nearpay.localhost/
 

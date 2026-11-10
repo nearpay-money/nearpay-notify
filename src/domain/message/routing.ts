@@ -385,12 +385,10 @@ export function planFor(e: RoutedEvent, o: RoutingOptions): { plan: Plan } | { s
       );
     }
     case "evt.compliance.kyb.submitted":
-      return plan(
-        "kyb.submitted",
-        account(str(x, "account_id"), "security", OWNERS),
-        { submitted_at: str(x, "submitted_at"), dashboard_url: o.dashboardOrigin },
-        str(x, "account_id"),
-      );
+      // open onboarding (ADR-0024): the decision follows within seconds, and its mail is the "You're
+      // live" welcome — a "we received your details" mail would only make sense with a review wait.
+      // The `kyb.submitted` template stays for messages queued before this release.
+      return { skip: "open onboarding: the KYB decision mail follows (ADR-0024)" };
     case "evt.compliance.account.action_requested":
     case "evt.sentinel.kill_switch.release_requested": {
       if (x.status !== "pending") return { skip: `the request is ${String(x.status)}` };

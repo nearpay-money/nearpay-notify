@@ -169,17 +169,11 @@ describe("compliance events", () => {
         .variables.requested_info,
     ).toBeNull();
   });
-  it("a KYB submission goes to owners", () => {
+  it("a KYB submission sends nothing: the decision mail follows at once (open onboarding, ADR-0024)", () => {
     const submitted = "2026-11-07T09:30:00.000Z";
     expect(
-      plan(ev("evt.compliance.kyb.submitted", { account_id: acct, status: "pending", submitted_at: submitted })),
-    ).toEqual({
-      template: "kyb.submitted",
-      audience: { kind: "account", accountId: acct, recipients: "security", roles: ["owner"] },
-      variables: { submitted_at: submitted, dashboard_url: o.dashboardOrigin },
-      accountId: acct,
-      livemode: null,
-    });
+      planFor(ev("evt.compliance.kyb.submitted", { account_id: acct, status: "pending", submitted_at: submitted }), o),
+    ).toEqual({ skip: "open onboarding: the KYB decision mail follows (ADR-0024)" });
   });
   it("blocks, suspensions and reviews", () => {
     const blocked = plan(
