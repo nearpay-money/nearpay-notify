@@ -100,15 +100,22 @@ describe("copy rules", () => {
     expect(
       body(renderContent("kyb.decision", { status: "needs_info", reason: "INTERNAL", dashboard_url: d })),
     ).not.toContain("INTERNAL");
-    expect(renderContent("kyb.decision", { status: "approved", dashboard_url: d }).subject).toBe(
-      "Your business details are approved",
-    );
+    // open onboarding (ADR-0024): the approval mail is the "You're live" welcome
+    const live = renderContent("kyb.decision", { status: "approved", dashboard_url: d });
+    expect(live.subject).toBe("You're live on NearPay");
+    expect(live.heading).toBe("You're live — you can accept real payments");
     expect(renderContent("kyb.decision", { status: "rejected", dashboard_url: d }).blocks).not.toContainEqual(
       expect.objectContaining({ kind: "button" }),
     );
   });
   it("KYB is self-declared: no mail claims a verified business or identity (ADR-0020)", () => {
     for (const { t, text } of all()) expect(text, t).not.toMatch(/verif(y|ied|ication)|KYB/i);
+    // ADR-0024: no business mail promises or mentions a NearPay review
+    for (const t of ["kyb.decision", "kyb.submitted"] as const)
+      for (const v of SAMPLES[t]) {
+        const c = renderContent(t, v);
+        expect(`${c.subject} ${c.preheader} ${c.heading} ${body(c)}`, t).not.toMatch(/review|approv/i);
+      }
   });
   it("refund mails never imply NearPay held or returned the funds (INV-1)", () => {
     for (const v of SAMPLES["refund.receipt"]) {
@@ -181,7 +188,7 @@ describe("copy rules", () => {
     const unknown = { ...suspend, action: "account.close", target_type: "account" };
     expect(renderContent("ops.approval_requested", unknown).subject).toContain("account.close");
   });
-  it("the KYB submission mail says what happens next", () => {
+  it("the KYB submission mail (queued before ADR-0024) says what happens next", () => {
     const text = body(renderContent("kyb.submitted", SAMPLES["kyb.submitted"][0]));
     expect(text).toContain("2026-11-07 09:30 UTC");
     expect(text).toContain("Test mode keeps working");

@@ -1,10 +1,10 @@
-Subject: Your business details are approved
+Subject: You're live on NearPay
 
-Business details approved
+You're live — you can accept real payments
 
-NearPay reviewed and approved the business details you submitted. You can now turn on live mode in the dashboard; it also needs an active settlement destination.
+Your business details are saved, so live mode is on for your account. Live payments settle to your active live settlement destination — add one in the dashboard if you haven't yet.
 
-Checkout shows your approved legal name with the note “Business details reviewed by NearPay”.
+Checkout shows the legal name you declared.
 
 Open the dashboard: https://dashboard.nearpay.localhost/
 

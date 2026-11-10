@@ -5,8 +5,9 @@
  *
  * Copy rules: security mails always show the destination fingerprint (security.md T-01); mails to
  * merchants never repeat internal compliance reasons (only a `needs_info` request is shown); KYB is
- * self-declared business details reviewed by NearPay ops (ADR-0020 d3), so no mail ever claims a
- * verified business or identity (product/design-system.md §6.3); refund mails say the merchant sent
+ * self-declared business details (ADR-0020 d3) that go live at once without a NearPay review
+ * (open onboarding, ADR-0024: the approval mail is the "You're live" welcome, no "we're reviewing" mail),
+ * so no mail ever claims a verified business or identity, or a review (product/design-system.md §6.3); refund mails say the merchant sent
  * the funds from their own wallet (INV-1: NearPay never holds or returns funds itself).
  */
 import { formatUnits, minorUnits } from "@nearpay-internal/money";
@@ -732,30 +733,30 @@ const en: { [T in TemplateName]: (v: Variables<T>) => Content } = {
     switch (v.status) {
       case "approved":
         return {
-          subject: "Your business details are approved",
-          preheader: "You can now turn on live mode.",
-          heading: "Business details approved",
+          subject: "You're live on NearPay",
+          preheader: "You can accept real payments.",
+          heading: "You're live — you can accept real payments",
           blocks: [
             {
               kind: "p",
-              text: "NearPay reviewed and approved the business details you submitted. You can now turn on live mode in the dashboard; it also needs an active settlement destination.",
+              text: "Your business details are saved, so live mode is on for your account. Live payments settle to your active live settlement destination — add one in the dashboard if you haven't yet.",
             },
             {
               kind: "p",
-              text: "Checkout shows your approved legal name with the note “Business details reviewed by NearPay”.",
+              text: "Checkout shows the legal name you declared.",
             },
             { kind: "button", label: "Open the dashboard", href: v.dashboard_url },
           ],
         };
       case "rejected":
         return {
-          subject: "Your business details were not approved",
+          subject: "Live payments are not available for your business",
           preheader: "Live payments are not available for this account.",
-          heading: "Business details not approved",
+          heading: "Live payments not available",
           blocks: [
             {
               kind: "p",
-              text: "NearPay could not approve the business details you submitted, so live payments are not available for this account. Test mode keeps working.",
+              text: "NearPay can't offer live payments to this business, so live mode is off for this account. Test mode keeps working.",
             },
             { kind: "note", text: "Contact NearPay support if you have questions." },
           ],
@@ -763,10 +764,10 @@ const en: { [T in TemplateName]: (v: Variables<T>) => Content } = {
       case "needs_info":
         return {
           subject: "We need more information about your business",
-          preheader: "The review is paused until you update your details.",
+          preheader: "Live mode waits until you update your details.",
           heading: "More information needed",
           blocks: [
-            { kind: "p", text: "To continue reviewing your business details, NearPay needs the following:" },
+            { kind: "p", text: "Before live payments can start, NearPay needs the following:" },
             { kind: "callout", tone: "info", text: v.requested_info ?? "See the dashboard for what is missing." },
             { kind: "p", text: "Update your business details in the dashboard and submit them again." },
             { kind: "button", label: "Update business details", href: v.dashboard_url },
@@ -1039,16 +1040,16 @@ const en: { [T in TemplateName]: (v: Variables<T>) => Content } = {
   }),
   "kyb.submitted": (v) => ({
     subject: "We received your business details",
-    preheader: "NearPay will review them and email you the outcome.",
+    preheader: "We'll email you as soon as live mode is on.",
     heading: "Business details received",
     blocks: [
       {
         kind: "p",
-        text: `Your business details were submitted on ${formatDate(v.submitted_at)}. NearPay will review the details you declared and email you when the review is done.`,
+        text: `Your business details were submitted on ${formatDate(v.submitted_at)}. We'll email you as soon as live mode is on.`,
       },
       {
         kind: "p",
-        text: "Test mode keeps working while you wait. Live mode becomes available once the review is approved and you have an active settlement destination.",
+        text: "Test mode keeps working meanwhile. Live payments also need an active settlement destination.",
       },
       { kind: "button", label: "Open the dashboard", href: v.dashboard_url },
     ],
