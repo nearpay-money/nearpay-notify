@@ -6,7 +6,6 @@
  * returned to the caller only, never logged.
  */
 
-import type { RouteResponse } from "@nearpay/spec";
 import { serviceTokenClient } from "@nearpay-internal/auth";
 import { HttpError, httpClient } from "@nearpay-internal/http";
 import {
@@ -17,6 +16,7 @@ import {
   getRefundReceiptContext,
   getSubscriptionNotificationContext,
 } from "@nearpay-internal/spec";
+import type { RouteResponse } from "@nearpay-money/spec";
 import type { RecipientKind } from "../../domain/message/routing.js";
 
 export type Recipients = RouteResponse<typeof getNotificationRecipients>["recipients"];

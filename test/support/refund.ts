@@ -1,6 +1,7 @@
 /** A spec-valid `Refund` for event tests (kit 0.1.x has no refund factory; parsed against spec 0.2.0). */
-import { Refund } from "@nearpay/spec";
+
 import { newId } from "@nearpay-internal/ids";
+import { Refund } from "@nearpay-money/spec";
 
 export function refund(over: Partial<Record<keyof Refund, unknown>> = {}): Refund {
   const now = Math.floor(Date.now() / 1000);

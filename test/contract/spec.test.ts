@@ -3,7 +3,7 @@
  * routes to notify has a handler, responses and errors have the spec's shapes, and the peer routes
  * notify calls exist with the scopes notify holds (the mocks in the worker tests enforce the rest).
  */
-import { ErrorEnvelope, PUBLIC_ROUTES, SERVICE_CLIENT_SCOPES } from "@nearpay/spec";
+
 import { unhandledSubjects } from "@nearpay-internal/bus";
 import { unimplementedRoutes } from "@nearpay-internal/service";
 import {
@@ -19,6 +19,7 @@ import {
   type Subject,
   sendMessage,
 } from "@nearpay-internal/spec";
+import { ErrorEnvelope, PUBLIC_ROUTES, SERVICE_CLIENT_SCOPES } from "@nearpay-money/spec";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { notifyRoutes } from "../../src/api/routes.js";
 import { notifyHandlers } from "../../src/consumers/handlers.js";
