@@ -3,7 +3,7 @@
  * subscription events, stage 4 mandates, and billing's notification contexts — each parsed against
  * spec 0.4.0.
  */
-import { Invoice, Mandate, Subscription } from "@nearpay/spec";
+
 import { newId } from "@nearpay-internal/ids";
 import {
   InvoiceNotificationContext,
@@ -11,6 +11,7 @@ import {
   MandateNotificationContext,
   SubscriptionNotificationContext,
 } from "@nearpay-internal/spec";
+import { Invoice, Mandate, Subscription } from "@nearpay-money/spec";
 import type { z } from "zod";
 
 type Over<T> = Partial<Record<keyof T, unknown>>;
