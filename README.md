@@ -1,6 +1,11 @@
 # nearpay-notify
 
-> Transactional email (receipts, invoices, dunning, security alerts) with primary/fallback providers.
+Transactional email: sign-in links, receipts, invoices and reminders, security alerts for payout-wallet changes, and ops alerts. One SMTP provider today; the fallback provider in the design is not built.
+
+Part of [NearPay](https://github.com/nearpay-money/nearpay) — start there for the live demo, the architecture diagram and the full "do X, see Y" walkthrough.
+
+- **Where it sits:** internal only. Identity and billing call `POST /internal/messages` for mails that carry a link; everything else is driven by domain events from NATS, for which notify reads the recipients and context from identity, payments and billing. It sends through an SMTP provider (Mailpit locally, Resend over SMTP in the beta).
+- **Status:** NearPay runs on NEAR mainnet as a closed beta (https://nearpay.money). This service is part of that deployment.
 
 |                                       |                                                     |
 | ------------------------------------- | --------------------------------------------------- |
@@ -8,19 +13,19 @@
 | Kind                                  | service                                             |
 | Ships as                              | image: ghcr.io/nearpay-money/notify · internal only |
 | Owns                                  | Message, Template                                   |
-| Depends on (published artifacts only) | spec, kit, email providers                          |
+| Depends on (published artifacts only) | spec, kit, an SMTP provider                         |
 | First built in                        | Stage 1 (step 1.2)                                  |
 
 ## Documentation
 
-This repo stays surgical: design docs live in [`nearpay-brain`](../nearpay-brain/README.md), not here.
+Design docs live in [`nearpay-brain`](https://github.com/nearpay-money/nearpay-brain), not here.
 
-- `nearpay-brain/lld/notify.md` — **low-level design (dev-ready; implement from this)**
-- `nearpay-brain/lld/audits/notify.md` — audit findings already folded into the LLD
-- `nearpay-brain/roadmap/development-plan.md` — stage and step this repo is built in
-- `nearpay-brain/architecture/hld.md` — system design
-- `nearpay-brain/architecture/repositories.md` — repo topology and dependency rules
-- `nearpay-brain/architecture/hld.md`
+- [`lld/notify.md`](https://github.com/nearpay-money/nearpay-brain/blob/main/lld/notify.md) — low-level design this repo is implemented from
+- [`lld/audits/notify.md`](https://github.com/nearpay-money/nearpay-brain/blob/main/lld/audits/notify.md) — audit findings already folded into the LLD
+- [`roadmap/development-plan.md`](https://github.com/nearpay-money/nearpay-brain/blob/main/roadmap/development-plan.md) — stage and step this repo is built in
+- [`architecture/hld.md`](https://github.com/nearpay-money/nearpay-brain/blob/main/architecture/hld.md) — system design
+- [`architecture/repositories.md`](https://github.com/nearpay-money/nearpay-brain/blob/main/architecture/repositories.md) — repo topology and dependency rules
+- [`architecture/hld.md`](https://github.com/nearpay-money/nearpay-brain/blob/main/architecture/hld.md)
 
 ## Layout
 
@@ -48,15 +53,26 @@ nearpay-notify/
 └── Dockerfile                distroless Node 22 image, `node dist/main.js <process>`
 ```
 
+## Verify this repo
+
+Needs Node 22 (`.nvmrc`) and pnpm 9. `.npmrc` points the `@nearpay-money` and `@nearpay-internal` scopes at a local package registry, so start that first.
+
+1. Start the local registry (no Docker, Node 22 only):
+   `git clone https://github.com/nearpay-money/nearpay-deploy ../nearpay-deploy && ../nearpay-deploy/scripts/registry.sh start`
+   → `curl http://127.0.0.1:4873/-/ping` answers `{}`.
+2. `pnpm install --frozen-lockfile` → ends with `Done in …`, no registry errors.
+3. `pnpm test` (unit and property tests plus a rendered snapshot of every template; no Docker, no mail sent) → `Test Files  11 passed (11)`, `Tests  209 passed (209)`. The rendered subject, text and HTML of each mail can be read in `test/__snapshots__/`.
+4. `pnpm verify` (the full gate: typecheck, lint, unit tests with the coverage gate of ≥ 90 % branches on `src/domain`, integration tests, build) → exits 0. The integration and contract tests run on real Postgres, NATS and Mailpit started by Testcontainers, so this step needs a running Docker daemon; steps 1–3 do not.
+
 ## Commands
 
-| Command                                                                                                   | What it does                                                                                                                                              |
-| --------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `pnpm install`                                                                                            | Install (Node 22, pnpm 9); `@nearpay-money/*` and `@nearpay-internal/*` come from the local registry (`.npmrc`, `nearpay-deploy/scripts/up.sh` starts it) |
-| `pnpm test`                                                                                               | Unit, property and template snapshot tests                                                                                                                |
-| `pnpm test:integration`                                                                                   | Integration and contract tests on real Postgres, NATS and Mailpit (Testcontainers; needs Docker)                                                          |
-| `pnpm verify`                                                                                             | typecheck + lint + unit tests with the coverage gate + integration tests + build                                                                          |
-| `docker build --network host --build-arg NP_REGISTRY_URL=http://127.0.0.1:4873 -t nearpay/notify:local .` | Image (what `up.sh` runs)                                                                                                                                 |
+| Command                                                                                                   | What it does                                                                                      |
+| --------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `pnpm install --frozen-lockfile`                                                                          | Install (Node 22, pnpm 9); NearPay packages come from the local registry (see "Verify this repo") |
+| `pnpm test`                                                                                               | Unit, property and template snapshot tests                                                        |
+| `pnpm test:integration`                                                                                   | Integration and contract tests on real Postgres, NATS and Mailpit (Testcontainers; needs Docker)  |
+| `pnpm verify`                                                                                             | typecheck + lint + unit tests with the coverage gate + integration tests + build                  |
+| `docker build --network host --build-arg NP_REGISTRY_URL=http://127.0.0.1:4873 -t nearpay/notify:local .` | Image (what nearpay-deploy's `scripts/up.sh` runs)                                                |
 
 After an intended copy or layout change, refresh the snapshots with `pnpm test -- -u` and review the diff.
 
@@ -99,6 +115,13 @@ After an intended copy or layout change, refresh the snapshots with `pnpm test -
 
 Stage 1 (step 1.2) implemented: the Stage-1 notify route and every subject `@nearpay-internal/spec` 0.1.2 routes to notify, SMTP delivery (Mailpit), dedupe, suppression, limits and retention. Stage 2 (step 2.2, spec 0.2.0): refund receipts, member, invitation, operator-enrolment, destination-approval, KYB-submitted and ops approval-request mails; brand restyle and self-declared KYB wording. Stage 3 (step 3.2, spec 0.3.0, kit 0.2.1): billing mails (invoice issued, reminder, paid, voided; subscription renewal upcoming). Stage 4 (step 4.2, spec 0.4.0): mandate mails to the payer; auto-debit wording in the renewal mail. Postmark/SES and bounce webhooks (`/webhooks/email/postmark`) arrive in Stage 5; more locales need only a copy table.
 
+Since then: open-onboarding mails ("You're live" welcome, no review mails, ADR-0024), payout-wallet copy that follows `active_at` instead of a fixed waiting period (ADR-0027), and kit 0.6.0. Current pins (`package.json`): `@nearpay-money/spec` 0.5.0, kit packages 0.6.0.
+
 ## Built with
 
-TypeScript 5, Node 22, `@nearpay-internal/*` kit (service, db, bus, http, auth, chains, money, ids), `mjml` (email layout), `nodemailer` (SMTP), Kysely + pg, NATS JetStream; tests with Vitest, fast-check, Testcontainers and Mailpit. Code and documentation are written with AI assistance (Claude) under human direction and review.
+- Runtime: TypeScript 5 on Node 22; `@nearpay-internal/*` kit (service, db, bus, http, auth, chains, money, ids) with Fastify, Kysely + pg and NATS JetStream underneath; `mjml` (email layout), `nodemailer` (SMTP), `zod`.
+- External services: an SMTP provider (Resend in the beta).
+- Tests and tooling: Vitest, fast-check, Testcontainers, Mailpit, Biome.
+- Licence: Apache-2.0 (`LICENSE`).
+
+Code and documentation are written with AI assistance (Claude) under human direction and review. Built for the NEAR Hackathon (Nov 2026).
