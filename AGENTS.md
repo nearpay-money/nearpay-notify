@@ -1,6 +1,6 @@
 # AGENTS.md — nearpay-notify
 
-You are working in **nearpay-notify**, one of 27 NearPay repositories (`nearpay-brain/architecture/repositories.md`).
+You are working in **nearpay-notify**, one of 26 NearPay repositories (`nearpay-brain/architecture/repositories.md`).
 Scope: Transactional email (receipts, invoices, dunning, security alerts) with primary/fallback providers.
 
 ## Before changing anything
